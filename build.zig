@@ -12,10 +12,10 @@
 //
 //   zig build         → zig-out/bin/mandala-topic.wasm (tm_<txid>), mandala-lookup.wasm (ls_mandala)
 //   zig build bin     the same, written to bin/*.wasm (committed)
-//   zig build test    the parsers, the rules, the topic, the lookup and the token list, natively
+//   zig build test    the parsers, the rules, the topic, the lookup, natively
 const std = @import("std");
 
-const Mods = struct { mandala: *std.Build.Module, imports: [8]std.Build.Module.Import };
+const Mods = struct { mandala: *std.Build.Module, imports: [7]std.Build.Module.Import };
 
 /// The modules a program or the tests import, for one target.
 fn mods(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) Mods {
@@ -30,7 +30,6 @@ fn mods(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.O
         .{ .name = "overlay_sk", .module = ov.module("sk") },
         .{ .name = "sk", .module = sdk.module("sk") },
         .{ .name = "cbor", .module = sdk.module("cbor") },
-        .{ .name = "app", .module = sdk.module("app") },
     } };
 }
 
@@ -66,6 +65,6 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
         .imports = &nm.imports,
     }) });
-    const test_step = b.step("test", "The parsers, the rules, the topic, the lookup and the token list, natively");
+    const test_step = b.step("test", "The parsers, the rules, the topic, the lookup, natively");
     test_step.dependOn(&b.addRunArtifact(tests).step);
 }

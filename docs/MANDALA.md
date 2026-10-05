@@ -1,7 +1,7 @@
 # Mandala on a skein
 
 Mandala tokens (BRC-162) served by a skein overlay: one topic per token, a
-lookup service over the topics, and a token list the owner changes live.
+lookup service over the topics, and the topics the owner registers live.
 Decided in shruggr/skein#120 (walkthrough 2026-10-05): components, not one
 app; one topic per token; the protocol first; governance later, per token.
 
@@ -9,11 +9,11 @@ app; one topic per token; the protocol first; governance later, per token.
 
 | component | file | role | what |
 |---|---|---|---|
-| topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>` by the token rules; keeps the token list (`mandala.tokens/1`) |
+| topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>` by the token rules |
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala_deploys`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.5.0 |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.6.0: serves the topics, keeps the registered set (`register` / `deregister`) |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -75,7 +75,7 @@ control check.
 
 **Metadata and documentation** (skein-overlay#2): the topic's name, a
 one-line description naming the token (a token at output 0 by its deploy
-txid, since the topic does not know its origin), version 0.3.1; the documentation is
+txid, since the topic does not know its origin), version 0.4.0; the documentation is
 the rule above in markdown.
 
 ## The lookup
@@ -140,58 +140,61 @@ decimals, symbol, icon, ...).
   stays listed once spent (a registry); a rejected transaction's deploys are
   removed. This is the shape of ts-stack's `metadataTokenId`, under its own
   key.
-- It is switched like a token: `mandala.tokens.activate {topic:
-  "tm_mandala_deploys"}` puts it on the same list, and the topic is served
-  under the `tm_` prefix with the same events. It is not in
-  `config.overlay.topics`: an entry there is served and subscribed from the
-  install on, which no message can turn off.
+- It is switched like a token: registered with `register {topic:
+  "tm_mandala_deploys", program: "mandala-topic"}`, dropped with
+  `deregister`. It is not in `config.overlay.topics`: an entry there is
+  served from the install on, which no message can turn off.
 
-## Activation
+## Registering a topic
 
-The overlay serves only the tokens the owner activated (#120 item 2, on
-skein #119).
+The overlay serves only the topics the owner registered (#120 item 2; the
+call is the engine's, skein-overlay 0.6.0, docs/OVERLAY.md "Register a
+topic"). The manifest declares no topics; there are no topic prefixes
+anywhere, in the configuration or in the rows.
 
-1. The owner sends `{fn: "mandala.tokens.activate", args: {topic}}` to the
-   app's box. The topic is `tm_<txid>`, `tm_<txid>_<vout>` or
-   `tm_mandala_deploys`. There is no token id argument: the topic follows from
-   how the token was deployed (the deploy page shows it). The row `{address: <app>, sender: "$owner", program:
-   "mandala-topic"}` takes it; the SDK's dispatch helper checks the args
-   against `provides`.
-2. `mandala-topic` reads the list at the head `<app>/mandala`, `{kind:
-   "mandala-tokens", topics: [<topic>, …]}` (sorted, each once), adds the
-   token's topic, and advances the head.
-3. In the same step it emits three events, `{event: "subscribe", topic}`
-   for `<topic>`, `<topic>-admit`, `<topic>-proof`. The kernel records them
-   with the app's name.
-4. It answers the owner `{topic, active: true}`.
-5. After the commit the host's libp2p node subscribes the three topics for
-   the app, because its prefix row `tm_` takes them (skein docs/OVERLAY.md
-   "How an overlay app activates a token topic live"). After a restart the
-   node reads them back from the log.
-6. From the next step, the engine serves the topic: `/submit` with it in
-   `X-Topics`, gossip on it, the listing.
+1. The owner sends `{fn: "register", args: {topic, program:
+   "mandala-topic"}}` to the app's box. The topic is `tm_<txid>`,
+   `tm_<txid>_<vout>` or `tm_mandala_deploys`; it follows from how the token
+   was deployed (the deploy page shows it). The row `{address: <app>,
+   sender: "$owner", program: "overlay"}` takes it to the engine.
+2. The engine adds `{topic, program}` to its registered set, the head
+   `<app>/topics` (`{kind: "overlay-topics", topics: [{topic, program}, …]}`,
+   sorted, each once), and advances the head.
+3. In the same step it emits `{event: "subscribe", topic, program, fn}` for
+   `<topic>` (`submit`), `<topic>-admit` (`peerAdmit`) and `<topic>-proof`
+   (`peerProof`), `program` the engine's role. The host subscribes them
+   and routes their messages by these events (skein #119).
+4. The step's result record is `{kind: "overlay-result", op: "register",
+   topic, active: true, changed}`; the engine also answers `{fn, request,
+   replyTo, result: {topic, active}}` to a sender a message can reach.
+5. From the next step the engine serves the topic, judged by
+   `mandala-topic`: `/submit` with it in `X-Topics`, gossip on it, the
+   listing, and both lookups (which list no `topics`, so they listen to
+   every topic served).
 
-`deactivate` removes the topic from the list and emits `unsubscribe` for the
-same three. Activating an active token, or deactivating an inactive one,
-writes and emits nothing; the answer is the same. Deactivating does not
-remove what the topic admitted or the lookup's index of it.
+`{fn: "deregister", args: {topic}}` removes it and emits `unsubscribe` for
+the same three. Both are idempotent: registering a registered topic, or
+deregistering one that is not, writes and emits nothing. A topic registered
+with another program is refused (deregister it first). Deregistering does
+not remove what the topic admitted or the lookup's index of it.
 
-## The engine
+## The manifest
 
-The engine reads the list through `config.overlay.prefixes` (skein-overlay
-0.5.0):
+`etc/app.json`, and what an app that carries the components puts in its own
+(README "Carry the components in another app"):
 
-```json
-"prefixes": {"tm_": {"program": "mandala-topic", "active": "mandala"}}
-```
+- `programs`: `overlay` (`bin/overlay.wasm`), `mandala-topic`,
+  `mandala-lookup`;
+- `config.overlay`: no `topics`; `lookups` `ls_mandala` and
+  `ls_mandala_deploys`, each `{"program": "mandala-lookup"}` with no
+  `topics` list;
+- the rows: `{"address": "<app>", "sender": "$owner", "program":
+  "overlay"}` and the four listing and documentation http rows;
+- `requires: ["chain/1"]`.
 
-At every step and call it reads the root record of `<app>/<active>` and
-serves each listed topic that starts with the prefix as if
-`config.overlay.topics` named it, judged by `program`. A lookup service in
-the object form with `"prefixes": ["tm_"]` listens to those topics. A
-message on `<topic>-admit` or `<topic>-proof` that reaches `submit` through
-the one prefix row goes to `peerAdmit` or `peerProof`. Nothing else in the
-engine changed.
+A manifest MAY pre-declare topics in `config.overlay.topics` (an overlay
+with fixed topics, e.g. OpNS's one global topic); they are served beside
+the registered ones. Mandala's topics are dynamic, so it declares none.
 
 ## Not built
 
@@ -199,7 +202,7 @@ engine changed.
   linkage (B); authority chains and `deploySig` from trusted issuers (C);
   controls: freeze, pause, access mode, sanctions screening, registry
   membership (D). For skein they are one profile set per token at
-  activation, with that token's trusted issuers and registry; a token
+  registration, with that token's trusted issuers and registry; a token
   without one is the protocol alone, as now. The port follows Deggen's
   manager in ts-stack `packages/overlays/topics/src/mandala` (BRC-162 since
   0211fd965): `ownership.ts`, `verifyKeyLinkage.ts`, `authority.ts`,
@@ -215,5 +218,5 @@ engine changed.
   token (wanted later for the 1sat hosted service). It gets its own name
   when it comes; Deggen's are `tm_mandala` and `tm_mandala_registry`. The
   discovery topic holds deploys only.
-- An activation profile (#120 item 5: the manager's settings in the app
-  record), a list function, and an equivalence test in skein.
+- A registration profile (#120 item 5: the manager's settings in the app
+  record), and an equivalence test in skein.

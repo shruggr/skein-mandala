@@ -5,8 +5,7 @@
 //! (src/fixtures/vectors.zig: a contract output is a token output like any
 //! other), and the program end to end through the topic contract's `judge`,
 //! reading the subject and its previous coins' sources as records from a
-//! store. Then the lookup service's three queries over its hooks, and the
-//! active token list.
+//! store. Then the lookup service's three queries over its hooks.
 const std = @import("std");
 const w = @import("chain");
 const topic = @import("topic");
@@ -1064,73 +1063,6 @@ test "lookup: queries out of shape are refused" {
     try testing.expectError(error.BadQuery, ls.parseQuery(.{ .text = "x" }));
 }
 
-// --- the active token list (mandala.tokens/1) ---
-
-const tokens = @import("src/tokens.zig");
-const sdk_cbor = @import("cbor");
-
-test "tokens: the list sorted, each once; the events; the record as the engine reads it" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const tx_a = "a5" ** 32;
-    const tx_b = "0b" ** 32;
-
-    try testing.expectEqualStrings("mandala/mandala", try tokens.headName(a, "mandala"));
-    try testing.expectEqualStrings("amm/mandala", try tokens.headName(a, "amm"));
-
-    // No list yet; activate a, then b (sorted); a again changes nothing.
-    var list = try tokens.topicsOf(a, null);
-    try testing.expectEqual(@as(usize, 0), list.len);
-    const ta = "tm_" ++ tx_a;
-    const tb = "tm_" ++ tx_b ++ "_3";
-    list = (try tokens.with(a, list, ta)).?;
-    list = (try tokens.with(a, list, tb)).?;
-    try testing.expect((try tokens.with(a, list, ta)) == null);
-    try testing.expectEqual(@as(usize, 2), list.len);
-    try testing.expectEqualStrings(tb, list[0]);
-    try testing.expectEqualStrings(ta, list[1]);
-
-    // The record round-trips, and the engine (the chain library's dag-cbor) reads its `topics`.
-    const rec = try tokens.recordOf(a, list);
-    try testing.expectEqual(@as(usize, 2), (try tokens.topicsOf(a, try sdk_cbor.decode(a, try sdk_cbor.encode(a, rec)))).len);
-    const seen = try w.cbor.decode(a, try sdk_cbor.encode(a, rec));
-    const ts = seen.getArray("topics").?;
-    try testing.expectEqual(@as(usize, 2), ts.len);
-    try testing.expectEqualStrings(tb, ts[0].text);
-    try testing.expectEqualStrings("mandala-tokens", seen.getText("kind").?);
-    try testing.expectError(error.BadTokenList, tokens.topicsOf(a, sdk_cbor.string("x")));
-
-    // Deactivate b; b again changes nothing.
-    list = (try tokens.without(a, list, tb)).?;
-    try testing.expect((try tokens.without(a, list, tb)) == null);
-    try testing.expectEqual(@as(usize, 1), list.len);
-
-    // One activation's events: subscribe for the topic and its -admit and -proof.
-    const evs = try tokens.events(a, "subscribe", ta);
-    const want = [_][]const u8{ ta, try std.mem.concat(a, u8, &.{ ta, "-admit" }), try std.mem.concat(a, u8, &.{ ta, "-proof" }) };
-    for (evs, want) |ev, t| {
-        try testing.expectEqualStrings("subscribe", sdk_cbor.Value.str(ev.get("event")).?);
-        try testing.expectEqualStrings(t, sdk_cbor.Value.str(ev.get("topic")).?);
-        try testing.expectEqual(@as(usize, 2), ev.map.len);
-    }
-    const ans = try tokens.answerOf(a, ta, true);
-    try testing.expect(ans.get("active").?.bool and ans.get("tokenId") == null);
-    try testing.expectEqualStrings(ta, sdk_cbor.Value.str(ans.get("topic")).?);
-    // Only topics go on the list; a token id is not one.
-    try testing.expect(!tokens.isTopic(tx_a) and !tokens.isTopic(tx_a ++ "_0") and !tokens.isTopic(tx_b ++ ".3"));
-
-    // The discovery topic is switched on the same list, by its name.
-    try testing.expect(tokens.isTopic("tm_mandala_deploys") and tokens.isTopic(ta) and tokens.isTopic(tb));
-    try testing.expect(!tokens.isTopic("tm_mandala") and !tokens.isTopic("tm_" ++ tx_a ++ "_0") and !tokens.isTopic("tm_demo"));
-    list = (try tokens.with(a, list, "tm_mandala_deploys")).?;
-    try testing.expectEqualStrings("tm_mandala_deploys", list[list.len - 1]);
-    const dev = try tokens.events(a, "unsubscribe", "tm_mandala_deploys");
-    try testing.expectEqualStrings("tm_mandala_deploys-proof", sdk_cbor.Value.str(dev[2].get("topic")).?);
-    const dans = try tokens.answerOf(a, "tm_mandala_deploys", false);
-    try testing.expect(dans.get("tokenId") == null and !dans.get("active").?.bool);
-}
-
 test "program: metadata and documentation through the topic contract's describe" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -1140,7 +1072,7 @@ test "program: metadata and documentation through the topic contract's describe"
     const m = try topic.describe(a, program, "metadata", arg);
     try testing.expectEqualStrings(t, m.getText("name").?);
     try testing.expect(std.mem.indexOf(u8, m.getText("shortDescription").?, "a5a5") != null);
-    try testing.expectEqualStrings("0.3.1", m.getText("version").?);
+    try testing.expectEqualStrings("0.4.0", m.getText("version").?);
     const d = try topic.describe(a, program, "documentation", arg);
     try testing.expect(std.mem.startsWith(u8, d.getText("documentation").?, "# Mandala token topic"));
     const ld = try lookup.describe(a, ls, "documentation", .{ .map = &.{ .{ .key = "kind", .value = text("lookup-describe") }, .{ .key = "service", .value = text("ls_mandala") } } });

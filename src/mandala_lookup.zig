@@ -283,7 +283,7 @@ pub fn metadata(_: Allocator, service: []const u8) anyerror!lookup.Metadata {
     };
 }
 
-pub const version = "0.3.1";
+pub const version = "0.4.0";
 
 pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     if (eql(u8, service, deploys_service)) return

@@ -14,10 +14,11 @@
  *   (`/explore/head/<name>`), a record (`/explore/record/<cid>`), and the
  *   answer to a message from the thread it launched
  *   (`/explore/edges/<message>?rel=launched-by`, then `/explore/thread/<origin>`
- *   until it rests; the step's stdout is the answer as DAG-JSON).
+ *   until it rests; the step's stdout is the CID of its result record).
  */
 import type { WalletInterface } from "@bsv/sdk";
 import * as dagJson from "@ipld/dag-json";
+import { CID } from "multiformats/cid";
 import { RawBox } from "skein/src/client/raw.ts";
 
 export class ReadError extends Error {
@@ -88,12 +89,17 @@ export class Instance {
     }
   }
 
-  /** A call's answer: the message sent, its thread's stdout decoded (DAG-JSON). */
+  /**
+   * A call's answer: the message sent, its thread read until it rests, and
+   * the result record its step printed the CID of (hex, one line on stdout;
+   * skein-overlay docs/OVERLAY.md "Result").
+   */
   async call(box: string, body: unknown): Promise<unknown> {
     const id = await this.send(box, body);
     const { update } = await this.threadOf(id);
     if (update.state === "errored") throw new Error(`the thread errored: ${JSON.stringify(update.error ?? {})}`);
-    const out = (update.result as { stdout?: Uint8Array } | undefined)?.stdout;
-    return dagJson.decode(out ?? new Uint8Array());
+    const out = new TextDecoder().decode((update.result as { stdout?: Uint8Array } | undefined)?.stdout ?? new Uint8Array()).trim();
+    if (!/^([0-9a-f]{2})+$/.test(out)) throw new Error(`no result record on the step's stdout: ${JSON.stringify(out.slice(0, 200))}`);
+    return this.read(`/record/${CID.decode(Uint8Array.from(out.match(/../g)!, (h) => parseInt(h, 16))).toString()}`);
   }
 }

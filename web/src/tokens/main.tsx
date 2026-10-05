@@ -1,14 +1,15 @@
 /**
- * The token list of this overlay: the owner's page. Reads the list (the head
- * `<app>/mandala`, through the explorer, the owner's read), and changes it by
- * the owner's `mandala.tokens/1` messages to the app's box `<app>`.
+ * The tokens this overlay serves: the owner's page. Reads the overlay
+ * engine's registered topics (the head `<app>/topics`, through the explorer,
+ * the owner's read), and changes them by the owner's `register` /
+ * `deregister` messages to the app's box `<app>` (skein-overlay 0.6.0).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@1sat/react";
 import { mount } from "../shell";
 import { whereOf } from "../where";
 import { Instance } from "./instance";
-import { DISCOVERY, activate, answerOf, deactivate, discovery, topicsOf, type Call } from "./list";
+import { DISCOVERY, answerOf, deregister, discovery, register, topicsOf, type Call } from "./list";
 
 const where = whereOf(location.href);
 
@@ -23,7 +24,7 @@ function TokensPage() {
 
   const load = useCallback(async () => {
     if (!inst || !where) return;
-    try { setTopics(topicsOf(await inst.head(`${where.app}/mandala`))); setReadErr(""); }
+    try { setTopics(topicsOf(await inst.head(`${where.app}/topics`))); setReadErr(""); }
     catch (e) { setTopics(undefined); setReadErr((e as Error).message); }
   }, [inst]);
   useEffect(() => { void load(); }, [load]);
@@ -33,7 +34,7 @@ function TokensPage() {
     setBusy(label); setNote(undefined);
     try {
       const a = answerOf(await inst.call(where.app, c));
-      setNote(a.ok ? { ok: true, text: `${a.topic}: ${a.active ? "active" : "not active"}` } : { ok: false, text: a.message });
+      setNote(a.ok ? { ok: true, text: `${a.topic}: ${a.active ? "registered" : "not registered"}` } : { ok: false, text: a.message });
     } catch (e) { setNote({ ok: false, text: (e as Error).message }); }
     setBusy("");
     await load();
@@ -41,28 +42,28 @@ function TokensPage() {
 
   if (!where) return <p className="bad">This page is served at <code>/&lt;app&gt;/mandala/tokens/</code>; its URL names no app.</p>;
   let idProblem = "";
-  try { activate(topic); } catch (e) { idProblem = (e as Error).message; }
+  try { register(topic); } catch (e) { idProblem = (e as Error).message; }
   const tokenTopics = (topics ?? []).filter((t) => t !== DISCOVERY);
   const discoveryOn = topics?.includes(DISCOVERY) ?? false;
 
   return (
     <>
       <h1>Tokens on this overlay</h1>
-      <p className="mut small">The overlay serves only the topics on this list: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is the owner's: a message from your wallet to the box <code>{where.app}</code> of <code>{where.base}</code>.</p>
+      <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is the owner's: a message from your wallet to the box <code>{where.app}</code> of <code>{where.base}</code>.</p>
       {status !== "connected" && <p className="mut">Connect the owner's wallet.</p>}
       {readErr && <p className="status bad">The list: {readErr}</p>}
       {inst && (
         <>
           <div className="card">
-            <h2>Activate a topic</h2>
-            <form className="row" onSubmit={(e) => { e.preventDefault(); if (!idProblem) void run("activate", activate(topic)); }}>
+            <h2>Register a topic</h2>
+            <form className="row" onSubmit={(e) => { e.preventDefault(); if (!idProblem) void run("register", register(topic)); }}>
               <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="tm_<txid>" />
-              <button type="submit" className="go" disabled={!!busy || !!idProblem}>{busy === "activate" ? "Activating…" : "Activate"}</button>
+              <button type="submit" className="go" disabled={!!busy || !!idProblem}>{busy === "register" ? "Registering…" : "Register"}</button>
             </form>
             {topic && idProblem && <p className="mut small">{idProblem}</p>}
           </div>
           <div className="card">
-            <h2>Active tokens</h2>
+            <h2>Registered tokens</h2>
             {topics === undefined ? <p className="mut small">{readErr ? "Not read." : "Reading…"}</p> : tokenTopics.length === 0 ? <p className="mut small">None.</p> : (
               <table>
                 <thead><tr><th>topic</th><th></th></tr></thead>
@@ -70,7 +71,7 @@ function TokensPage() {
                   {tokenTopics.map((t) => (
                     <tr key={t}>
                       <td><code>{t}</code></td>
-                      <td><button type="button" disabled={!!busy} onClick={() => void run(t, deactivate(t))}>{busy === t ? "Deactivating…" : "Deactivate"}</button></td>
+                      <td><button type="button" disabled={!!busy} onClick={() => void run(t, deregister(t))}>{busy === t ? "Deregistering…" : "Deregister"}</button></td>
                     </tr>
                   ))}
                 </tbody>
