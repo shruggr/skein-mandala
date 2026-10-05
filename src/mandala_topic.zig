@@ -1,8 +1,9 @@
 //! mandala-topic: the Mandala (BRC-162) topic manager, one topic per token
 //! (shruggr/skein#120), and the app's active token list (`mandala.tokens/1`).
 //!
-//! **The topic.** `tm_<txid>` for a BRC-162 token, `tm_<txid>_<vout>` for a
-//! BRC-161 token deployed at a non-zero output (name.zig). `identify` (the
+//! **The topic.** `tm_<txid>` for a token deployed at output 0 (BRC-162, or
+//! BRC-161 there: the same token), `tm_<txid>_<vout>` for a BRC-161 token
+//! deployed at a non-zero output (name.zig). `identify` (the
 //! skein-overlay topic contract, `topic.Call`) admits every output of the
 //! topic's token that the BSV-21 rules allow and retains the token coins the
 //! transaction spends (token.zig, bsv21.zig): the protocol only, nothing

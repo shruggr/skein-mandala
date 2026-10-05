@@ -8,14 +8,18 @@
 //! (binary wins, BRC-162 "Wire format"), else JSON when it carries a valid
 //! bsv-20 inscription, else not a token output.
 //!
-//! Which outputs are this token's (`tokenOf`), by the token's kind:
-//! - native (`tm_<txid>`): the genesis is a BRC-162 deploy at output 0 of
-//!   the deploy txid; every later output is binary with the 32-byte id. A
-//!   native token has no JSON form: a JSON output is never its.
-//! - legacy (`tm_<txid>_<vout>`): the genesis is a BRC-161 `deploy+mint` /
-//!   `deploy+auth` inscription at the deploy outpoint (a binary deploy is
-//!   never its genesis); later outputs are JSON with `id` `<txid>_<vout>`,
-//!   or binary with the canonical id (32 bytes when vout is 0, 36 when not).
+//! Which outputs are this token's (`tokenOf`), by its deploy output (BRC-162
+//! "Token identification"):
+//! - deployed at output 0 (`tm_<txid>`): the genesis is output 0 of the
+//!   deploy txid, a BRC-162 deploy or a BRC-161 `deploy+mint` /
+//!   `deploy+auth` inscription (the same token in both forms); later outputs
+//!   are binary with the 32-byte id, or JSON with `id` `<txid>_0`. A token
+//!   deployed in binary never has a JSON output admitted: its coins are
+//!   binary, and the one-way migration rule refuses JSON beside them.
+//! - deployed under BRC-161 at a non-zero output (`tm_<txid>_<vout>`): the
+//!   genesis is the inscription at the deploy outpoint (a binary deploy is
+//!   never its genesis); later outputs are JSON with `id` `<txid>_<vout>`, or
+//!   binary with the 36-byte id.
 //!
 //! The rules (BRC-162 and BRC-161 "Validation rules"):
 //! - Deploy: the genesis, admitted unconditionally.
@@ -52,8 +56,9 @@ const std = @import("std");
 const brc162 = @import("brc162.zig");
 const brc161 = @import("brc161.zig");
 
-/// Which genesis a token has (name.zig's `Kind`, repeated here so this file
-/// imports no other file of this package but the decoders).
+/// Where a token was deployed (name.zig's `Kind`, repeated here so this file imports no other
+/// file of this package but the decoders): `native` at output 0, in either form; `legacy` under
+/// BRC-161 at a non-zero output. The rules read the deploy output, not this.
 pub const Kind = enum { native, legacy };
 
 /// A token: its deploy outpoint and how it was deployed.
@@ -159,13 +164,12 @@ pub fn tokenOf(a: std.mem.Allocator, id: TokenId, txid: [32]u8, vout: u32, scrip
             if (!bid.eql(id.wire())) return null;
             break :blk if (b.role == .authority) .authority else .value;
         } else blk: {
-            // A binary deploy is the genesis of a native token only.
-            if (id.kind != .native or vout != 0 or !std.mem.eql(u8, &txid, &id.txid)) return null;
+            // A binary deploy is the genesis of a token deployed at output 0 only.
+            if (id.vout != 0 or vout != 0 or !std.mem.eql(u8, &txid, &id.txid)) return null;
             break :blk .deploy;
         };
         return .{ .form = .binary, .role = role, .amount = b.amount, .authority = b.amount == 0, .binary = b };
     }
-    if (id.kind != .legacy) return null;
     const j = (try brc161.decode(a, script)) orelse return null;
     if (j.op.isDeploy()) {
         if (vout != id.vout or !std.mem.eql(u8, &txid, &id.txid)) return null;

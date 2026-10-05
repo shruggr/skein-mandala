@@ -3,18 +3,17 @@
 //! The topic is the token's: any overlay for the same token admits the same
 //! set.
 //!
-//! - A token deployed under BRC-162 (binary, `native`): `tm_<txid>`, where
-//!   <txid> is the deploy txid as 64 lowercase hex characters in display
-//!   order. Its deploy is at output 0 and its wire id is the bare 32-byte
-//!   txid, so the name carries no index.
-//! - A token deployed under BRC-161 (legacy JSON, `legacy`):
-//!   `tm_<txid>_<vout>`, the index always present (`_0` included), decimal
-//!   without leading zeros. Its binary outputs carry the 32-byte id when vout
-//!   is 0 and the 36-byte id otherwise.
+//! - A token deployed at output 0 (`native`), under BRC-162 or under
+//!   BRC-161: `tm_<txid>`, where <txid> is the deploy txid as 64 lowercase
+//!   hex characters in display order. Its id is `<txid>_0`, on the wire the
+//!   bare 32-byte txid, so the name carries no index. BRC-162 "Token
+//!   identification": a BRC-161 token deployed at output 0 is the same token
+//!   in both forms, with the 32-byte id.
+//! - A token deployed under BRC-161 at a non-zero output (`legacy`):
+//!   `tm_<txid>_<vout>`, decimal without leading zeros. Its binary outputs
+//!   carry the 36-byte id (BRC-162: only such a token has one).
 //!
-//! `tm_<txid>` and `tm_<txid>_0` are different topics for the same token id
-//! string `<txid>_0`: which one holds the token depends on how output 0 of
-//! <txid> was deployed (only one of the two can be its genesis).
+//! `tm_<txid>_0` is not a topic name and is never produced (shruggr/skein#120).
 //!
 //! Only `std` is imported here.
 const std = @import("std");
@@ -47,10 +46,11 @@ pub fn idOfHex(hex: []const u8) ?[32]u8 {
     return id;
 }
 
-/// `<txid>` (native) or `<txid>_<vout>` (legacy, decimal, no leading zeros).
+/// `<txid>` (native) or `<txid>_<vout>` (legacy: vout non-zero, decimal, no leading zeros).
 fn idOfSuffix(s: []const u8) ?TokenId {
     if (s.len == 64) return .{ .txid = idOfHex(s) orelse return null };
     if (s.len < 66 or s[64] != '_') return null;
+    if (std.mem.eql(u8, s[64..], "_0")) return null; // output 0 is `<txid>`
     const v = s[65..];
     if (v.len > 1 and v[0] == '0') return null;
     for (v) |c| if (!std.ascii.isDigit(c)) return null;
@@ -68,13 +68,13 @@ fn idAfter(prefix: []const u8, name: []const u8) ?TokenId {
 
 /// The token a token id string names (BRC-162 "Token identification": `<txid>_<vout>`, the
 /// deploy outpoint, 64 lowercase hex in display order, the vout decimal without leading zeros):
-/// vout 0 is a BRC-162 token (`tm_<txid>`), any other vout a BRC-161 token deployed there
+/// vout 0 is a token deployed at output 0 (`tm_<txid>`, BRC-162 or BRC-161), any other vout a
+/// BRC-161 token deployed there
 /// (`tm_<txid>_<vout>`). Null for anything else.
 pub fn tokenIdOfString(s: []const u8) ?TokenId {
-    var id = idOfSuffix(s) orelse return null;
+    if (s.len == 66 and std.mem.endsWith(u8, s, "_0")) return .{ .txid = idOfHex(s[0..64]) orelse return null };
     if (s.len == 64) return null; // the vout is required
-    if (id.vout == 0) id.kind = .native;
-    return id;
+    return idOfSuffix(s);
 }
 
 /// The token a topic name carries: `tm_<txid>` (native) or
@@ -88,13 +88,14 @@ fn nameOf(buf: []u8, prefix: []const u8, id: TokenId) []const u8 {
     var r = id.txid;
     std.mem.reverse(u8, &r);
     const hex = std.fmt.bytesToHex(r, .lower);
-    return switch (id.kind) {
-        .native => std.fmt.bufPrint(buf, "{s}{s}", .{ prefix, &hex }),
-        .legacy => std.fmt.bufPrint(buf, "{s}{s}_{d}", .{ prefix, &hex, id.vout }),
-    } catch unreachable;
+    // By the deploy output alone: output 0 never carries an index.
+    return (if (id.vout == 0)
+        std.fmt.bufPrint(buf, "{s}{s}", .{ prefix, &hex })
+    else
+        std.fmt.bufPrint(buf, "{s}{s}_{d}", .{ prefix, &hex, id.vout })) catch unreachable;
 }
 
-/// The topic name of token `id`: `tm_<txid>` or `tm_<txid>_<vout>`.
+/// The topic name of token `id`: `tm_<txid>` (vout 0, whatever its kind) or `tm_<txid>_<vout>`.
 pub fn topicName(buf: *[max_topic_len]u8, id: TokenId) []const u8 {
     return nameOf(buf, topic_prefix, id);
 }

@@ -8,8 +8,9 @@ library they are built on, as a Zig package. Version **0.1.0**.
 ## What it is
 
 - **The topic manager** (`bin/mandala-topic.wasm`): one topic per token,
-  `tm_<txid>` (a BRC-162 token, id `<txid>_0`) or `tm_<txid>_<vout>` (a
-  BRC-161 token deployed at a non-zero output). It admits every output of
+  `tm_<txid>` (a token deployed at output 0, under BRC-162 or BRC-161, id
+  `<txid>_0`) or `tm_<txid>_<vout>` (a BRC-161 token deployed at a non-zero
+  output). It admits every output of
   the token that the BSV-21 rules allow and retains the token coins a
   transaction spends: the protocol only, no governance. It also keeps the
   app's active token list (`mandala.tokens/1`).
@@ -34,11 +35,9 @@ Exported Zig modules:
 
 ## Use it
 
-**The engine.** The components need the overlay engine with topic prefixes:
-skein-overlay's branch `topic-patterns` (eac7ddb, not merged; it adds
-`config.overlay.prefixes`, docs/MANDALA.md "The engine"). `bin/overlay.wasm`
-here is built from that commit. skein-overlay 0.4.1 does not serve an
-activated topic.
+**The engine.** The components need skein-overlay 0.5.0 or later, which
+serves activated topics through `config.overlay.prefixes` (docs/MANDALA.md
+"The engine"). `bin/overlay.wasm` here is the v0.5.0 build.
 
 **On its own** (`etc/app.json`, the reference manifest; the chain app first,
 which the overlay requires):
@@ -91,8 +90,8 @@ outputIndex}]}`, each output with its transaction's BEEF.
 An app that serves Mandala tokens with its own programs beside them (an
 AMM) carries these in its tree and manifest:
 
-1. **The programs.** `bin/overlay.wasm` (the engine, from the
-   `topic-patterns` build above), `bin/mandala-topic.wasm`,
+1. **The programs.** `bin/overlay.wasm` (the engine, skein-overlay
+   0.5.0, which reads `config.overlay.prefixes`), `bin/mandala-topic.wasm`,
    `bin/mandala-lookup.wasm`, copied from this repo, under the roles
    `overlay`, `mandala-topic`, `mandala-lookup`.
 2. **`config.overlay`**:
@@ -142,9 +141,8 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        // No tag yet: by commit (`zig fetch --save git+https://github.com/shruggr/skein-mandala#<commit>`).
-        .url = "git+https://github.com/shruggr/skein-mandala#<commit>",
-        .hash = "<zig fetch prints it>",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.1.0.tar.gz",
+        .hash = "HASH_PLACEHOLDER",
     },
 },
 ```
@@ -173,8 +171,9 @@ zig build bin      # the same, into bin/ (committed)
 zig build test     # the parsers, the rules, the topic, the lookup, the token list, natively
 ```
 
-`bin/overlay.wasm` is copied from skein-overlay's `topic-patterns` build
-(`zig build bin` there), not built here. With a local skein-overlay
+`bin/overlay.wasm` is copied from skein-overlay v0.5.0's build (`zig build
+bin` there; the same bytes as its committed `bin/overlay.wasm`), not built
+here. With a local skein-overlay
 checkout: `zig build --fork=../skein-overlay`.
 
 ## Docs
@@ -190,8 +189,8 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app and package | 0.1.0 |
-| skein-overlay | v0.4.1 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` from branch `topic-patterns` (eac7ddb) |
+| this app and package | 0.1.0 (tag `v0.1.0`) |
+| skein-overlay | v0.5.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.5.1, through skein-overlay (modules `chain`, `app`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |
 

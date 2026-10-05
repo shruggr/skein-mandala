@@ -11,8 +11,8 @@
 //! The first of `authoritiesTokenId`, `tokenId` present answers; else the
 //! outpoint. `limit` is 1 to 100 (default 100), `skip` 0 to 100000 (default
 //! 0). Any other key, or a value out of shape, is refused. A token id is
-//! `<txid>_<vout>`: `<txid>_0` for a BRC-162 token, the deploy outpoint of a
-//! BRC-161 one (tokens.zig). Answers are output-lists; the engine builds each
+//! `<txid>_<vout>`: `<txid>_0` for a token deployed at output 0 (either
+//! form), the deploy outpoint of a BRC-161 one elsewhere (tokens.zig). Answers are output-lists; the engine builds each
 //! output's BEEF from the chain state.
 //!
 //! The maps (`tok` = the token's deploy txid in display order ‖ vout, u32 BE;

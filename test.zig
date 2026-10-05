@@ -410,7 +410,7 @@ test "brc161: the body's field rules" {
     }
 }
 
-test "bsv21: binary wins; a native token has no JSON form; a legacy token takes both" {
+test "bsv21: binary wins; a token at output 0 is one token in both forms; a legacy token at output 5 takes both" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -430,8 +430,9 @@ test "bsv21: binary wins; a native token has no JSON form; a legacy token takes 
     const bad36 = cat(a, &.{ &.{0x24}, &id_a, &.{ 0, 0, 0, 0, 0x55, 0x6d }, jsonOp(a, "transfer", id_a, 0, 99) });
     try testing.expectEqual(bsv21.Form.json, (try bsv21.tokenOf(a, leg0, tx1, 0, bad36)).?.form);
 
-    // A native token: JSON outputs naming <txid>_0 are not its.
-    try testing.expect((try bsv21.tokenOf(a, tid_a, tx1, 0, jsonOp(a, "transfer", id_a, 0, 1))) == null);
+    // A token deployed at output 0 (BRC-162 "Token identification": one token in both forms):
+    // JSON naming <txid>_0 and binary with the 32-byte id are both its.
+    try testing.expectEqual(bsv21.Form.json, (try bsv21.tokenOf(a, tid_a, tx1, 0, jsonOp(a, "transfer", id_a, 0, 1))).?.form);
     try testing.expect((try bsv21.tokenOf(a, tid_a, tx1, 0, tokenScript(a, id_a, 1, null))) != null);
 
     // A legacy token at output 5: JSON with id <txid>_5, binary with the 36-byte id only.
@@ -442,13 +443,14 @@ test "bsv21: binary wins; a native token has no JSON form; a legacy token takes 
     try testing.expectEqual(bsv21.Form.binary, (try bsv21.tokenOf(a, leg5, tx1, 0, b36)).?.form);
     try testing.expect((try bsv21.tokenOf(a, leg0, tx1, 0, b36)) == null);
 
-    // Genesis by kind: a binary deploy is a native genesis only; a JSON
-    // deploy is a legacy genesis only, at the deploy outpoint.
+    // Genesis by the deploy output: at output 0 a binary or a JSON deploy (one token, either
+    // form); at a non-zero output a JSON deploy only, at the deploy outpoint.
     const bdeploy = tokenScript(a, null, 100, null);
     const jdeploy = bsv20(a, "{\"p\":\"bsv-20\",\"op\":\"deploy+mint\",\"amt\":\"100\"}");
     try testing.expectEqual(bsv21.Role.deploy, (try bsv21.tokenOf(a, tid_a, id_a, 0, bdeploy)).?.role);
-    try testing.expect((try bsv21.tokenOf(a, leg0, id_a, 0, bdeploy)) == null);
-    try testing.expect((try bsv21.tokenOf(a, tid_a, id_a, 0, jdeploy)) == null);
+    try testing.expectEqual(bsv21.Role.deploy, (try bsv21.tokenOf(a, leg0, id_a, 0, bdeploy)).?.role);
+    try testing.expectEqual(bsv21.Role.deploy, (try bsv21.tokenOf(a, tid_a, id_a, 0, jdeploy)).?.role);
+    try testing.expect((try bsv21.tokenOf(a, leg5, id_a, 5, bdeploy)) == null);
     try testing.expectEqual(bsv21.Role.deploy, (try bsv21.tokenOf(a, leg0, id_a, 0, jdeploy)).?.role);
     try testing.expectEqual(bsv21.Role.deploy, (try bsv21.tokenOf(a, leg5, id_a, 5, jdeploy)).?.role);
     try testing.expect((try bsv21.tokenOf(a, leg5, id_a, 4, jdeploy)) == null);
@@ -641,17 +643,14 @@ test "topic names: tm_<txid> native, tm_<txid>_<vout> legacy; AMM-prefixed names
     try testing.expect(token.tokenIdOf("tm_abcd") == null);
     try testing.expect(token.tokenIdOf("tm_demo") == null);
 
-    // Legacy BRC-161 `tm_<txid>_<vout>`, `_0` included: a different topic
-    // from `tm_<txid>`.
-    const l0 = token.tokenIdOf(rev ++ "_0").?;
-    try testing.expectEqual(bsv21.Kind.legacy, l0.kind);
-    try testing.expectEqual(@as(u32, 0), l0.vout);
-    try testing.expectEqualSlices(u8, &got, &l0.txid);
+    // Legacy BRC-161 `tm_<txid>_<vout>` at a non-zero output only. A BRC-161 token deployed at
+    // output 0 is `tm_<txid>` (BRC-162: its id is the 32-byte txid); `tm_<txid>_0` is no topic.
+    try testing.expect(token.tokenIdOf(rev ++ "_0") == null);
     const l7 = token.tokenIdOf(rev ++ "_4294967295").?;
     try testing.expectEqual(bsv21.Kind.legacy, l7.kind);
     try testing.expectEqual(@as(u32, 4294967295), l7.vout);
     try testing.expectEqualStrings(rev ++ "_12", names.topicName(&buf, .{ .txid = got, .vout = 12, .kind = .legacy }));
-    try testing.expectEqualStrings(rev ++ "_0", names.topicName(&buf, .{ .txid = got, .vout = 0, .kind = .legacy }));
+    try testing.expectEqualStrings(rev, names.topicName(&buf, .{ .txid = got, .vout = 0, .kind = .legacy }));
     // Not canonical: leading zeros, sign, empty, too large, other separators.
     for ([_][]const u8{ "_00", "_01", "_+1", "_", "_4294967296", ".0", "_1_2", "_-1", "_ 1" }) |bad| {
         var nb: [100]u8 = undefined;
@@ -718,17 +717,9 @@ test "program: identify through the topic contract, reading records from a store
 
     // Not a token topic: tm_demo.
     try testing.expectError(error.UnknownTopic, topic.judge(a, s, program.identify, try callArgs(a, "tm_demo", subject, &.{0})));
-    // The legacy topic of the same outpoint is another topic: its genesis
-    // would be a BRC-161 deploy at <txid>_0, and output 0 is a binary
-    // deploy, so the deploy is not its, nor anything that spends it (the
-    // legacy topic never holds a coin of it: a pool deploy there spends no
-    // previous coin and its outputs are unfunded).
+    // `tm_<txid>_0` is no topic (a token at output 0 is `tm_<txid>` in either form).
     const legacy = try std.mem.concat(a, u8, &.{ tname, "_0" });
-    const rl = try topic.judge(a, s, program.identify, try callArgs(a, legacy, deploy_cid, &.{}));
-    try testing.expectEqual(@as(usize, 0), (try uintsOf(a, rl.get("outputsToAdmit").?)).len);
-    const pd_cid = try s.putBitcoin(a, .tx, f.raws.get("pool_deploy").?);
-    const rls = try topic.judge(a, s, program.identify, try callArgs(a, legacy, pd_cid, &.{}));
-    try testing.expectEqual(@as(usize, 0), (try uintsOf(a, rls.get("outputsToAdmit").?)).len);
+    try testing.expectError(error.UnknownTopic, topic.judge(a, s, program.identify, try callArgs(a, legacy, deploy_cid, &.{})));
 }
 
 // --- legacy BRC-161 tokens and their migration, on gen/main.go's transactions ---
@@ -761,9 +752,9 @@ test "legacy: JSON deploys at output 0 and at a non-zero output; a JSON transfer
 
     try expectVerdict(a, f, L0, "legacy_deploy0", &.{}, &.{0});
     try expectVerdict(a, f, L1, "legacy_deploy1", &.{}, &.{1});
-    // The same outpoints under the wrong name: the native topic of deploy0
-    // (its output 0 is no binary deploy), deploy1's output 0.
-    try expectVerdict(a, f, .{ .txid = L0.txid }, "legacy_deploy0", &.{}, &.{});
+    // deploy0 at output 0 is the token of `tm_<txid>` whatever the kind says (the deploy output
+    // decides); deploy1's output 0 is not deploy1's token.
+    try expectVerdict(a, f, .{ .txid = L0.txid }, "legacy_deploy0", &.{}, &.{0});
     try expectVerdict(a, f, .{ .txid = L1.txid, .vout = 0, .kind = .legacy }, "legacy_deploy1", &.{}, &.{});
 
     // deploy0:0 (1,000,000) -> 600,000 (envelope before the lock) + 400,000 (after it).
@@ -1129,4 +1120,34 @@ test "program: metadata and documentation through the topic contract's describe"
     try testing.expect(std.mem.startsWith(u8, d.getText("documentation").?, "# Mandala token topic"));
     const ld = try lookup.describe(a, ls, "documentation", .{ .map = &.{ .{ .key = "kind", .value = text("lookup-describe") }, .{ .key = "service", .value = text("ls_mandala") } } });
     try testing.expect(std.mem.startsWith(u8, ld.getText("documentation").?, "# Mandala token lookup service"));
+}
+
+test "program: a BRC-161 token deployed at output 0 is tm_<txid>, its id <txid>_0; tm_<txid>_0 is never produced" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var ms = w.store.MemStore.init(testing.allocator);
+    defer ms.deinit();
+    const s = ms.store();
+    const f = try Fixtures.init(a);
+    const txid = w.beef.txidOf(f.raws.get("legacy_deploy0").?);
+    const hex = w.header.toHex(txid);
+
+    // Its id and its topic, from every direction.
+    const t = (try tokens.topicOf(a, &hex ++ "_0")).?;
+    try testing.expectEqualStrings("tm_" ++ hex, t);
+    var buf: [names.max_topic_len]u8 = undefined;
+    try testing.expectEqualStrings(t, names.topicName(&buf, .{ .txid = txid, .vout = 0, .kind = .legacy }));
+    try testing.expectEqualStrings(t, names.topicName(&buf, names.tokenIdOfString(&hex ++ "_0").?));
+    try testing.expect(names.tokenIdOf("tm_" ++ hex ++ "_0") == null);
+
+    // The JSON deploy and a JSON transfer of it, judged under tm_<txid>.
+    _ = try s.putBitcoin(a, .tx, f.raws.get("legacy_fund").?);
+    const deploy_cid = try s.putBitcoin(a, .tx, f.raws.get("legacy_deploy0").?);
+    const transfer_cid = try s.putBitcoin(a, .tx, f.raws.get("legacy_transfer").?);
+    const rd = try topic.judge(a, s, program.identify, try callArgs(a, t, deploy_cid, &.{}));
+    try testing.expectEqualSlices(u32, &.{0}, try uintsOf(a, rd.get("outputsToAdmit").?));
+    const rt = try topic.judge(a, s, program.identify, try callArgs(a, t, transfer_cid, &.{0}));
+    try testing.expectEqualSlices(u32, &.{ 0, 1 }, try uintsOf(a, rt.get("outputsToAdmit").?));
+    try testing.expectEqualSlices(u32, &.{0}, try uintsOf(a, rt.get("coinsToRetain").?));
 }

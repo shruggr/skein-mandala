@@ -12,7 +12,7 @@ app; one topic per token; the protocol first; governance later, per token.
 | topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>` by the token rules; keeps the token list (`mandala.tokens/1`) |
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay, branch `topic-patterns` |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.5.0 |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -24,13 +24,14 @@ another app"). This repo's `etc/app.json` is a manifest of the three alone.
 **Names** (`src/name.zig`). `<txid>` is the deploy txid, 64 lowercase hex
 characters in display order.
 
-- `tm_<txid>`: a token deployed under BRC-162. Its genesis is a binary
-  deploy (id `OP_0`) at output 0; its id is `<txid>_0`, on the wire the
-  32-byte txid.
-- `tm_<txid>_<vout>`: a token deployed under BRC-161 (a JSON
-  `deploy+mint` or `deploy+auth` inscription) at `<txid>_<vout>`. Its
-  binary outputs carry the 32-byte id when vout is 0 and the 36-byte id
-  otherwise.
+- `tm_<txid>`: a token deployed at output 0. Its genesis is a binary
+  deploy (id `OP_0`) or a BRC-161 `deploy+mint` / `deploy+auth`
+  inscription there; its id is `<txid>_0`, on the wire the 32-byte txid.
+  BRC-162 "Token identification": a BRC-161 token deployed at output 0 is
+  the same token in both forms.
+- `tm_<txid>_<vout>`: a token deployed under BRC-161 at a non-zero output.
+  Its binary outputs carry the 36-byte id, the only tokens that have one.
+- `tm_<txid>_0` is not a topic name and is never produced.
 
 **The rule** (`src/bsv21.zig`, `src/token.zig`): BRC-162 and BRC-161
 "Validation rules" for the topic's token, over the transaction and the
@@ -72,8 +73,9 @@ key present, in this order, answers:
 | `{tokenId, limit?, skip?}` | the token's unspent value outputs, in outpoint order |
 | `{txid, outputIndex}` | the value or authority output at that outpoint, if unspent |
 
-- A token id is `<txid>_<vout>`: `<txid>_0` for a BRC-162 token, the
-  deploy outpoint of a BRC-161 one. Lowercase hex in display order; the
+- A token id is `<txid>_<vout>`: `<txid>_0` for a token deployed at output
+  0 (either form), the deploy outpoint of a BRC-161 token at a non-zero
+  output. Lowercase hex in display order; the
   vout decimal without leading zeros.
 - `limit` 1 to 100 (default 100), `skip` 0 to 100000 (default 0). Any other
   key, or a value out of shape, is refused.
@@ -130,7 +132,7 @@ remove what the topic admitted or the lookup's index of it.
 ## The engine
 
 The engine reads the list through `config.overlay.prefixes` (skein-overlay
-branch `topic-patterns`, eac7ddb; not merged, not pushed):
+0.5.0):
 
 ```json
 "prefixes": {"tm_": {"program": "mandala-topic", "active": "mandala"}}
@@ -174,6 +176,3 @@ engine changed.
   checks a lookup's `topics` against them. A manifest whose topics are all
   activated live has none, so `etc/app.json` is refused until skein accepts
   `prefixes` there (and derives no rows from it).
-- A BRC-161 token deployed at output 0 has the topic `tm_<txid>_0`
-  (name.zig), but its id `<txid>_0` activates `tm_<txid>`, the BRC-162
-  topic. Such a token cannot be activated by its id.

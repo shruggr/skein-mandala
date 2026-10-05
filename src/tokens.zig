@@ -6,12 +6,13 @@
 //!
 //! The overlay engine reads the same record (config.overlay.prefixes
 //! `{"tm_": {"program": "mandala-topic", "active": "mandala"}}`, skein-overlay
-//! branch topic-patterns) and serves each listed topic with this program.
+//! 0.5.0) and serves each listed topic with this program.
 //!
 //! A token id is `<txid>_<vout>`: the deploy outpoint, the txid as 64
 //! lowercase hex characters in display order, the vout decimal without
 //! leading zeros (BRC-162 "Token identification"). Its topic (name.zig):
-//! `<txid>_0` is `tm_<txid>`, a BRC-162 token; `<txid>_<vout>` with a
+//! `<txid>_0` is `tm_<txid>`, a token deployed at output 0 in either form
+//! (BRC-162 or BRC-161); `<txid>_<vout>` with a
 //! non-zero vout is `tm_<txid>_<vout>`, a BRC-161 token deployed at that
 //! output.
 //!
