@@ -27,12 +27,27 @@ characters in display order.
 
 - `tm_<txid>`: a token deployed at output 0. Its genesis is a binary
   deploy (id `OP_0`) or a BRC-161 `deploy+mint` / `deploy+auth`
-  inscription there; its id is `<txid>_0`, on the wire the 32-byte txid.
+  inscription there; on the wire its id is the 32-byte txid.
   BRC-162 "Token identification": a BRC-161 token deployed at output 0 is
   the same token in both forms.
 - `tm_<txid>_<vout>`: a token deployed under BRC-161 at a non-zero output.
   Its binary outputs carry the 36-byte id, the only tokens that have one.
 - `tm_<txid>_0` is not a topic name and is never produced.
+
+**Token ids** (`src/name.zig` `tokenIdOfString`, `tokenIdText`; `src/token.zig`
+`originOf`; BRC-162 "Token identification"). A token id is the deploy
+outpoint, and how it is written depends on the token's origin, which is the form of its deploy:
+
+- a token that originated as **Mandala** (a binary deploy, always at output
+  0) is written as the bare `<txid>`;
+- a token that originated as **BSV-21** (a BRC-161 JSON deploy) is written
+  `<txid>_<vout>`, and `<txid>_0` for one deployed at output 0.
+
+Input takes any form: `<txid>`, `<txid>_<vout>` or the BRC-36
+`<txid>.<vout>`. `<txid>`, `<txid>_0` and `<txid>.0` all name the
+token at output 0, whatever its origin. Output prints the origin's form. The
+origin is known only from the deploy output. The topic and its name do
+not record it.
 
 **The rule** (`src/bsv21.zig`, `src/token.zig`): BRC-162 and BRC-161
 "Validation rules" for the topic's token, over the transaction and the
@@ -59,7 +74,8 @@ exactly when the rules admit it. There is no ownership, authority-chain or
 control check.
 
 **Metadata and documentation** (skein-overlay#2): the topic's name, a
-one-line description naming the token, version 0.2.0; the documentation is
+one-line description naming the token (a token at output 0 by its deploy
+txid, since the topic does not know its origin), version 0.3.1; the documentation is
 the rule above in markdown.
 
 ## The lookup
@@ -74,16 +90,18 @@ key present, in this order, answers:
 | `{tokenId, limit?, skip?}` | the token's unspent value outputs, in outpoint order |
 | `{txid, outputIndex}` | the value or authority output at that outpoint, if unspent |
 
-- A token id is `<txid>_<vout>`: `<txid>_0` for a token deployed at output
-  0 (either form), the deploy outpoint of a BRC-161 token at a non-zero
-  output. Lowercase hex in display order; the
-  vout decimal without leading zeros.
+- A token id is taken as `<txid>`, `<txid>_<vout>` or `<txid>.<vout>`
+  ("Token ids" above). Lowercase hex in display order; the vout decimal
+  without leading zeros.
 - `limit` 1 to 100 (default 100), `skip` 0 to 100000 (default 0). Any other
   key, or a value out of shape, is refused.
 - Outpoint order is the txid in display order, then the output index (the
   ts-stack sort).
-- The answer is an output-list of outpoints. The engine builds each output's
-  BEEF from the chain state; the service never handles one.
+- The answer is an output-list of outpoints, with no token id strings. The
+  engine builds each output's BEEF from the chain state, and the service never
+  handles one. A client that writes the token's id reads the origin from
+  the deploy output (`ls_mandala_deploys`, or the authorities answer): a
+  binary deploy is `<txid>`, a JSON one `<txid>_<vout>`.
 
 **The index** is three maps under the head `<app>/ls_mandala`, kept by the
 lookup hooks the engine calls in the step that admits or rejects:
@@ -133,8 +151,10 @@ decimals, symbol, icon, ...).
 The overlay serves only the tokens the owner activated (#120 item 2, on
 skein #119).
 
-1. The owner sends `{fn: "mandala.tokens.activate", args: {tokenId}}` (or `{topic}`) to the
-   app's box. The row `{address: <app>, sender: "$owner", program:
+1. The owner sends `{fn: "mandala.tokens.activate", args: {topic}}` to the
+   app's box. The topic is `tm_<txid>`, `tm_<txid>_<vout>` or
+   `tm_mandala_deploys`. There is no token id argument: the topic follows from
+   how the token was deployed (the deploy page shows it). The row `{address: <app>, sender: "$owner", program:
    "mandala-topic"}` takes it; the SDK's dispatch helper checks the args
    against `provides`.
 2. `mandala-topic` reads the list at the head `<app>/mandala`, `{kind:
@@ -143,7 +163,7 @@ skein #119).
 3. In the same step it emits three events, `{event: "subscribe", topic}`
    for `<topic>`, `<topic>-admit`, `<topic>-proof`. The kernel records them
    with the app's name.
-4. It answers the owner `{tokenId, topic, active: true}`.
+4. It answers the owner `{topic, active: true}`.
 5. After the commit the host's libp2p node subscribes the three topics for
    the app, because its prefix row `tm_` takes them (skein docs/OVERLAY.md
    "How an overlay app activates a token topic live"). After a restart the

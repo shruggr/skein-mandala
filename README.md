@@ -4,13 +4,13 @@ The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
 library they are built on, as a Zig package, and two pages an app that
-carries the components serves. Version **0.3.0**.
+carries the components serves. Version **0.3.1**.
 
 ## What it is
 
 - **The topic manager** (`bin/mandala-topic.wasm`): one topic per token,
-  `tm_<txid>` (a token deployed at output 0, under BRC-162 or BRC-161, id
-  `<txid>_0`) or `tm_<txid>_<vout>` (a BRC-161 token deployed at a non-zero
+  `tm_<txid>` (a token deployed at output 0, under BRC-162, id `<txid>`, or
+  BRC-161, id `<txid>_0`) or `tm_<txid>_<vout>` (a BRC-161 token deployed at a non-zero
   output). It admits every output of
   the token that the BSV-21 rules allow and retains the token coins a
   transaction spends: the protocol only, no governance. It also keeps the
@@ -22,8 +22,15 @@ carries the components serves. Version **0.3.0**.
   `mandala-topic`): every token's deploy output, so the metadata each token
   was deployed with can be found. Its lookup `ls_mandala_deploys` (a mode of
   `mandala-lookup`) answers `{tokenId}` with the deploy output.
-- **Live activation.** A topic is served once its token is activated: the
-  owner's `mandala.tokens.activate {tokenId}` writes the token list under
+- **Token ids** (BRC-162 "Token identification"). A token that originated
+  as Mandala (a binary deploy, always at output 0) is written as the bare
+  `<txid>`. A token that originated as BSV-21 (a BRC-161 JSON deploy) is
+  written `<txid>_<vout>`, and `<txid>_0` for one deployed at output 0. The lookups take any of
+  `<txid>`, `<txid>_<vout>` and `<txid>.<vout>`. Topic names do not change:
+  `tm_<txid>` for a token at output 0 of either origin, `tm_<txid>_<vout>`
+  for a BSV-21 token at a non-zero output.
+- **Live activation.** A topic is served once it is activated: the
+  owner's `mandala.tokens.activate {topic}` writes the token list under
   `<app>/mandala` and emits `subscribe` for the topic's three GossipSub
   topics; `deactivate` undoes it. The overlay tracks activated tokens only.
 - **The library** (Zig module `mandala`): the BRC-162 and BRC-161 output
@@ -59,11 +66,12 @@ docs/APPS.md §4), `skein plan` / `skein send` or any BRC-100 wallet:
 
 ```
 box:  mandala
-body: {"fn": "mandala.tokens.activate", "args": {"tokenId": "<txid>_0"}}
+body: {"fn": "mandala.tokens.activate", "args": {"topic": "tm_<txid>"}}
 ```
 
-The answer is `{fn, request, replyTo, result: {tokenId, topic, active:
-true}}`. The discovery topic is switched the same way by its name:
+The argument is the topic alone: `tm_<txid>`, `tm_<txid>_<vout>` or
+`tm_mandala_deploys`. The topic follows from how the token was deployed, and the deploy page shows it. The answer is `{fn, request, replyTo, result: {topic, active:
+true}}`. The discovery topic is switched the same way:
 `{"fn": "mandala.tokens.activate", "args": {"topic": "tm_mandala_deploys"}}`. The topic `tm_<txid>` is served from the next step, and the host's
 libp2p node subscribes `tm_<txid>`, `tm_<txid>-admit` and `tm_<txid>-proof`.
 
@@ -81,10 +89,10 @@ Content-Type: application/octet-stream
 
 ```
 POST <base>/lookup
-{"service": "ls_mandala", "query": {"tokenId": "<txid>_0", "limit": 10}}
-{"service": "ls_mandala", "query": {"authoritiesTokenId": "<txid>_0"}}
+{"service": "ls_mandala", "query": {"tokenId": "<txid>", "limit": 10}}
+{"service": "ls_mandala", "query": {"authoritiesTokenId": "<txid>"}}
 {"service": "ls_mandala", "query": {"txid": "<txid>", "outputIndex": 1}}
-{"service": "ls_mandala_deploys", "query": {"tokenId": "<txid>_0"}}
+{"service": "ls_mandala_deploys", "query": {"tokenId": "<txid>"}}
 ```
 
 Each answer is an output-list: `{type: "output-list", outputs: [{beef,
@@ -121,8 +129,8 @@ AMM) carries these in its tree and manifest:
    activated topics with `"prefixes": ["tm_"]`. Gossip is on for every
    topic unless `gossip` turns one off.
 3. **`provides`**: the `mandala.tokens/1` interface as in `etc/app.json`
-   (`activate`, `deactivate`, each `writes: true`, args `{"tokenId?":
-   "string", "topic?": "string"}`, one of the two). The SDK's dispatch helper reads the declaration from the
+   (`activate`, `deactivate`, each `writes: true`, args `{"topic":
+   "string"}`, answer `{"topic": "string", "active": "bool"}`). The SDK's dispatch helper reads the declaration from the
    app record.
 4. **The rows**:
    - `{"address": "<app>", "sender": "$owner", "program": "mandala-topic"}`:
@@ -150,7 +158,7 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.3.0.tar.gz",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.3.1.tar.gz",
         .hash = "<zig fetch --save prints it>",
     },
 },
@@ -166,7 +174,10 @@ const m = b.dependency("skein_mandala", .{ .target = wasi, .optimize = .ReleaseS
 ```zig
 const mandala = @import("mandala");
 const tok = mandala.brc162.decode(script) orelse return; // {id, amount, role, payload, lock}
-const id = mandala.token.tokenIdOfString("<txid>_0").?;
+const id = mandala.token.tokenIdOfString("<txid>").?; // or "<txid>_<vout>", "<txid>.<vout>"
+const origin = (try mandala.token.originOf(a, txid, 0, deploy_script)).?; // .mandala (binary) or .bsv21 (JSON)
+var buf: [mandala.name.max_suffix_len]u8 = undefined;
+const text = mandala.name.tokenIdText(&buf, mandala.name.tokenIdOfString("<txid>").?, origin); // "<txid>" or "<txid>_0"
 const j = try mandala.bsv21.judge(a, id, tx, previous_coins); // the rules over a bsv21.Tx
 ```
 
@@ -178,8 +189,8 @@ by itself, so the pages are not served from this repo's manifest.
 
 | page | served at | what |
 |---|---|---|
-| deploy | `/<app>/mandala/deploy/` | **Deploy a token.** Open to anyone: a helper over the user's own wallet. Fields: symbol, decimals (0 to 18), fixed supply (an amount in whole tokens) or authority (amount 0, the deploy output mints), an optional icon outpoint (`txid_vout`). `@1sat/actions`' `deployMandala` builds the BRC-162 deploy at output 0, the wallet (connected through `@1sat/connect`) signs and broadcasts it and files it (basket `mandala <txid> 0`). The page shows the token id `<txid>_0` and the topic `tm_<txid>`. Nothing is sent to the overlay. If the filing step fails after the broadcast, "File it again" runs the SDK's `fileMandalaDeploy`. |
-| tokens | `/<app>/mandala/tokens/` | **Tokens on this overlay.** The owner's page. Lists the active topics (the head `<app>/mandala`, read through the instance's explorer, `/explore/head/<app>/mandala`, which is the owner's read). Activate by token id, deactivate a listed topic, and a switch for the discovery topic `tm_mandala_deploys`. Each change is the owner's message to the app's box `<app>`: `{fn: "mandala.tokens.activate" \| "mandala.tokens.deactivate", args: {tokenId} \| {topic}}`, sent the way skein-site sends the owner's messages (skein's `RawBox.send`: a BRC-104-signed `POST <base>/sendMessage`, BRC-231 CBOR, recipient the instance's identity from its signed answers). The answer is read from the thread the message launched, and the list is read again. A wallet that is not the owner's gets the explorer's 403, and its messages are refused. |
+| deploy | `/<app>/mandala/deploy/` | **Deploy a token.** Open to anyone: a helper over the user's own wallet. Fields: symbol, decimals (0 to 18), fixed supply (an amount in whole tokens) or authority (amount 0, the deploy output mints), an optional icon outpoint (`txid_vout`). `@1sat/actions`' `deployMandala` builds the BRC-162 deploy at output 0, the wallet (connected through `@1sat/connect`) signs and broadcasts it and files it (basket `mandala <txid> 0`). The page shows the token id, the bare `<txid>` (a Mandala token), and the topic to activate, `tm_<txid>`, which the owner copies to the tokens page. Nothing is sent to the overlay. If the filing step fails after the broadcast, "File it again" runs the SDK's `fileMandalaDeploy`. |
+| tokens | `/<app>/mandala/tokens/` | **Tokens on this overlay.** The owner's page. Lists the active topics (the head `<app>/mandala`, read through the instance's explorer, `/explore/head/<app>/mandala`, which is the owner's read). Activate by topic name (`tm_<txid>` or `tm_<txid>_<vout>`), deactivate a listed topic, and a switch for the discovery topic `tm_mandala_deploys`. Each change is the owner's message to the app's box `<app>`: `{fn: "mandala.tokens.activate" \| "mandala.tokens.deactivate", args: {topic}}`, answered `{topic, active}`, sent the way skein-site sends the owner's messages (skein's `RawBox.send`: a BRC-104-signed `POST <base>/sendMessage`, BRC-231 CBOR, recipient the instance's identity from its signed answers). The answer is read from the thread the message launched, and the list is read again. A wallet that is not the owner's gets the explorer's 403, and its messages are refused. |
 
 The page takes the app's name and the instance from its own URL:
 `<base>/<app>/mandala/<page>/`, where `<base>` is the instance's origin or a
@@ -247,7 +258,7 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app and package | 0.3.0 (tag `v0.3.0`); the programs are unchanged since 0.2.0 and say 0.2.0 in their metadata |
+| this app, its programs and package | 0.3.1 (tag `v0.3.1`) |
 | the pages | `@1sat/actions` 0.0.233, `@1sat/react` 0.0.102, `@1sat/connect` 0.0.104, `@1sat/templates` 0.0.43, `@bsv/sdk` 2.8.6 (`web/package.json`, exact); skein's client at `web/lib/SKEIN_REV` |
 | skein-overlay | v0.5.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.5.1, through skein-overlay (modules `chain`, `app`, `sk`, `cbor`) |

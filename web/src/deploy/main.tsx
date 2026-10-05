@@ -73,14 +73,14 @@ function DeployPage() {
           <table><tbody>
             <tr><th>transaction</th><td><code>{done.txid}</code></td></tr>
             <tr><th>token id</th><td><code>{names.tokenId}</code></td></tr>
-            <tr><th>topic</th><td><code>{names.topic}</code></td></tr>
+            <tr><th>topic to activate</th><td><code>{names.topic}</code></td></tr>
           </tbody></table>
           {done.error ? (
             <p className="status bad">Broadcast, not filed in your wallet: {done.error} <button type="button" disabled={busy} onClick={refile}>File it again</button></p>
           ) : (
             <p className="ok small">In your wallet: basket <code>mandala {done.txid} 0</code>.</p>
           )}
-          <p className="mut small">An overlay serves the token once its owner activates the token id (<a href="../tokens/">Tokens on this overlay</a>).</p>
+          <p className="mut small">An overlay serves the token once its owner activates the topic <code>{names.topic}</code> (<a href="../tokens/">Tokens on this overlay</a>).</p>
         </div>
       )}
     </>

@@ -8,7 +8,7 @@ import { useWallet } from "@1sat/react";
 import { mount } from "../shell";
 import { whereOf } from "../where";
 import { Instance } from "./instance";
-import { DISCOVERY, activate, answerOf, deactivate, discovery, tokenOfTopic, topicsOf, type Call } from "./list";
+import { DISCOVERY, activate, answerOf, deactivate, discovery, topicsOf, type Call } from "./list";
 
 const where = whereOf(location.href);
 
@@ -19,7 +19,7 @@ function TokensPage() {
   const [readErr, setReadErr] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState<{ ok: boolean; text: string }>();
-  const [tokenId, setTokenId] = useState("");
+  const [topic, setTopic] = useState("");
 
   const load = useCallback(async () => {
     if (!inst || !where) return;
@@ -41,35 +41,34 @@ function TokensPage() {
 
   if (!where) return <p className="bad">This page is served at <code>/&lt;app&gt;/mandala/tokens/</code>; its URL names no app.</p>;
   let idProblem = "";
-  try { activate(tokenId); } catch (e) { idProblem = (e as Error).message; }
+  try { activate(topic); } catch (e) { idProblem = (e as Error).message; }
   const tokenTopics = (topics ?? []).filter((t) => t !== DISCOVERY);
   const discoveryOn = topics?.includes(DISCOVERY) ?? false;
 
   return (
     <>
       <h1>Tokens on this overlay</h1>
-      <p className="mut small">The overlay serves only the tokens on this list: the topic <code>tm_&lt;txid&gt;</code> of each. Changing it is the owner's: a message from your wallet to the box <code>{where.app}</code> of <code>{where.base}</code>.</p>
+      <p className="mut small">The overlay serves only the topics on this list: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is the owner's: a message from your wallet to the box <code>{where.app}</code> of <code>{where.base}</code>.</p>
       {status !== "connected" && <p className="mut">Connect the owner's wallet.</p>}
       {readErr && <p className="status bad">The list: {readErr}</p>}
       {inst && (
         <>
           <div className="card">
-            <h2>Activate a token</h2>
-            <form className="row" onSubmit={(e) => { e.preventDefault(); if (!idProblem) void run("activate", activate(tokenId)); }}>
-              <input type="text" value={tokenId} onChange={(e) => setTokenId(e.target.value)} placeholder="<txid>_0" />
+            <h2>Activate a topic</h2>
+            <form className="row" onSubmit={(e) => { e.preventDefault(); if (!idProblem) void run("activate", activate(topic)); }}>
+              <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="tm_<txid>" />
               <button type="submit" className="go" disabled={!!busy || !!idProblem}>{busy === "activate" ? "Activating…" : "Activate"}</button>
             </form>
-            {tokenId && idProblem && <p className="mut small">{idProblem}</p>}
+            {topic && idProblem && <p className="mut small">{idProblem}</p>}
           </div>
           <div className="card">
             <h2>Active tokens</h2>
             {topics === undefined ? <p className="mut small">{readErr ? "Not read." : "Reading…"}</p> : tokenTopics.length === 0 ? <p className="mut small">None.</p> : (
               <table>
-                <thead><tr><th>token id</th><th>topic</th><th></th></tr></thead>
+                <thead><tr><th>topic</th><th></th></tr></thead>
                 <tbody>
                   {tokenTopics.map((t) => (
                     <tr key={t}>
-                      <td><code>{tokenOfTopic(t) ?? ""}</code></td>
                       <td><code>{t}</code></td>
                       <td><button type="button" disabled={!!busy} onClick={() => void run(t, deactivate(t))}>{busy === t ? "Deactivating…" : "Deactivate"}</button></td>
                     </tr>

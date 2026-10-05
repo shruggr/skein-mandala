@@ -14,7 +14,8 @@ pub fn tokenIdOf(topic: []const u8) ?bsv21.TokenId {
     return fromName(name.tokenIdOf(topic) orelse return null);
 }
 
-/// The token a token id string `<txid>_<vout>` names (name.zig `tokenIdOfString`), as the rules take it.
+/// The token a token id string names (`<txid>`, `<txid>_<vout>`, `<txid>.<vout>`; name.zig
+/// `tokenIdOfString`), as the rules take it.
 pub fn tokenIdOfString(s: []const u8) ?bsv21.TokenId {
     return fromName(name.tokenIdOfString(s) orelse return null);
 }
@@ -33,6 +34,19 @@ pub fn deployOf(a: std.mem.Allocator, txid: [32]u8, vout: u32, script: []const u
     const id: bsv21.TokenId = .{ .txid = txid, .vout = vout, .kind = if (vout == 0) .native else .legacy };
     const t = (try bsv21.tokenOf(a, id, txid, vout, script)) orelse return null;
     return if (t.role == .deploy) id else null;
+}
+
+/// The origin of the token whose deploy output `vout` of `txid` is (the form of its deploy:
+/// binary is `mandala`, a BRC-161 JSON inscription `bsv21`), or null when that output is not a
+/// valid deploy. It decides how the token id is written (name.zig `tokenIdText`).
+pub fn originOf(a: std.mem.Allocator, txid: [32]u8, vout: u32, script: []const u8) error{OutOfMemory}!?name.Origin {
+    const id: bsv21.TokenId = .{ .txid = txid, .vout = vout, .kind = if (vout == 0) .native else .legacy };
+    const t = (try bsv21.tokenOf(a, id, txid, vout, script)) orelse return null;
+    if (t.role != .deploy) return null;
+    return switch (t.form) {
+        .binary => .mandala,
+        .json => .bsv21,
+    };
 }
 
 /// The discovery topic's verdict (`tm_mandala_deploys`): every output that is a valid deploy of

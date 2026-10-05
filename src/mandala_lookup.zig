@@ -11,9 +11,11 @@
 //! The first of `authoritiesTokenId`, `tokenId` present answers; else the
 //! outpoint. `limit` is 1 to 100 (default 100), `skip` 0 to 100000 (default
 //! 0). Any other key, or a value out of shape, is refused. A token id is
-//! `<txid>_<vout>`: `<txid>_0` for a token deployed at output 0 (either
-//! form), the deploy outpoint of a BRC-161 one elsewhere (tokens.zig). Answers are output-lists; the engine builds each
-//! output's BEEF from the chain state.
+//! taken as `<txid>`, `<txid>_<vout>` or `<txid>.<vout>` (name.zig
+//! `tokenIdOfString`): `<txid>` and `<txid>_0` are the token deployed at
+//! output 0 (either form), a non-zero vout the deploy outpoint of a BRC-161
+//! one. Answers are output-lists (outpoints, no token id strings); the engine
+//! builds each output's BEEF from the chain state.
 //!
 //! The maps (`tok` = the token's deploy txid in display order ‖ vout, u32 BE;
 //! `op` = an outpoint's txid in display order ‖ vout, u32 BE, so key order is
@@ -281,7 +283,7 @@ pub fn metadata(_: Allocator, service: []const u8) anyerror!lookup.Metadata {
     };
 }
 
-pub const version = "0.2.0";
+pub const version = "0.3.1";
 
 pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     if (eql(u8, service, deploys_service)) return
@@ -289,9 +291,10 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     \\
     \\Indexes the deploy outputs `tm_mandala_deploys` admits, by token id.
     \\
-    \\- `{ tokenId }`: the token's deploy output (`<txid>_0`, or `<txid>_<vout>` for a token
-    \\  deployed under BRC-161 at a non-zero output), with the metadata it was deployed with
-    \\  in its script. An output-list of one, or empty when the deploy was not admitted.
+    \\- `{ tokenId }`: the token's deploy output, with the metadata it was deployed with in
+    \\  its script. The deploy's form is the token's origin: a binary deploy is a Mandala
+    \\  token, written `<txid>`; a BRC-161 JSON deploy a BSV-21 token, written
+    \\  `<txid>_<vout>` (`<txid>_0` at output 0). An output-list of one, or empty when the deploy was not admitted.
     \\
     \\A deploy stays listed once it is spent. Any other key is refused.
     \\
@@ -300,9 +303,10 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     \\# Mandala token lookup service (ls_mandala)
     \\
     \\Indexes the outputs the Mandala token topics (`tm_<txid>`) admit, by token id and
-    \\outpoint. A token id is `<txid>_0`: the deploy outpoint, the txid in display byte
-    \\order, lowercase. A token deployed under BRC-161 at a non-zero output is
-    \\`<txid>_<vout>`.
+    \\outpoint. A token id is the deploy outpoint, the txid in display byte order,
+    \\lowercase. A token that originated as Mandala (a binary deploy, always output 0) is
+    \\written `<txid>`; one that originated as BSV-21 (a BRC-161 JSON deploy) `<txid>_<vout>`,
+    \\`<txid>_0` included. A query takes any of `<txid>`, `<txid>_<vout>`, `<txid>.<vout>`.
     \\
     \\## Queries
     \\

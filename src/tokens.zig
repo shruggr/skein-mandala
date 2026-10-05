@@ -8,13 +8,12 @@
 //! `{"tm_": {"program": "mandala-topic", "active": "mandala"}}`, skein-overlay
 //! 0.5.0) and serves each listed topic with this program.
 //!
-//! A token id is `<txid>_<vout>`: the deploy outpoint, the txid as 64
-//! lowercase hex characters in display order, the vout decimal without
-//! leading zeros (BRC-162 "Token identification"). Its topic (name.zig):
-//! `<txid>_0` is `tm_<txid>`, a token deployed at output 0 in either form
-//! (BRC-162 or BRC-161); `<txid>_<vout>` with a
-//! non-zero vout is `tm_<txid>_<vout>`, a BRC-161 token deployed at that
-//! output.
+//! A token's topic (name.zig) is `tm_<txid>` for a token deployed at output
+//! 0 (BRC-162, or BRC-161 there), `tm_<txid>_<vout>` for a BRC-161 token
+//! deployed at a non-zero output. Activate and deactivate take the topic only (`{topic}`: `tm_<txid>`,
+//! `tm_<txid>_<vout>` or `tm_mandala_deploys`; David, 2026-10-05): the topic
+//! is what it is from how the token was deployed, and the deploy page shows
+//! it. The answer is `{topic, active}`.
 //!
 //! The discovery topic `tm_mandala_deploys` is switched the same way, by its
 //! topic name (`{topic: "tm_mandala_deploys"}`): it is served under the same
@@ -44,25 +43,6 @@ pub const suffixes = [_][]const u8{ "", "-admit", "-proof" };
 /// The head of the list for app `app`.
 pub fn headName(a: Allocator, app: []const u8) ![]u8 {
     return std.fmt.allocPrint(a, "{s}/{s}", .{ app, head_suffix });
-}
-
-/// A token id `<txid>_<vout>` → the token as its topic names it (name.zig `tokenIdOfString`).
-pub fn parseTokenId(s: []const u8) ?name.TokenId {
-    return name.tokenIdOfString(s);
-}
-
-/// The token id string of a token: `<txid>_<vout>`.
-pub fn tokenIdString(a: Allocator, id: name.TokenId) ![]u8 {
-    var r = id.txid;
-    std.mem.reverse(u8, &r);
-    return std.fmt.allocPrint(a, "{s}_{d}", .{ &std.fmt.bytesToHex(r, .lower), id.vout });
-}
-
-/// The topic of a token id string, or null when it is not one.
-pub fn topicOf(a: Allocator, token_id: []const u8) !?[]u8 {
-    const id = parseTokenId(token_id) orelse return null;
-    var buf: [name.max_topic_len]u8 = undefined;
-    return try a.dupe(u8, name.topicName(&buf, id));
 }
 
 /// Whether `t` is a topic this list may hold: the discovery topic, or a token's topic.
@@ -131,10 +111,9 @@ pub fn events(a: Allocator, event: []const u8, topic: []const u8) ![suffixes.len
     return out;
 }
 
-/// The answer of activate and deactivate: `{tokenId?, topic, active}` (`tokenId` when asked by it).
-pub fn answerOf(a: Allocator, token_id: ?[]const u8, topic: []const u8, active: bool) !Value {
+/// The answer of activate and deactivate: `{topic, active}`.
+pub fn answerOf(a: Allocator, topic: []const u8, active: bool) !Value {
     var m = cbor.MapBuilder.init(a);
-    if (token_id) |x| try m.put("tokenId", cbor.string(x));
     try m.put("topic", cbor.string(topic));
     try m.put("active", .{ .bool = active });
     return m.value();

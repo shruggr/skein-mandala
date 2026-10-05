@@ -32,8 +32,8 @@ describe("deploy payload", () => {
     expect(() => deployInput(form({ amount: "0" }))).toThrow(/amount/);
     expect(() => deployInput(form({ decimals: "0", amount: "18446744073709551616" }))).toThrow(/2\^64/);
   });
-  it("the token's names", () => {
-    expect(namesOf(txid.toUpperCase())).toEqual({ tokenId: `${txid}_0`, topic: `tm_${txid}` });
+  it("the token's names: a Mandala token's id is the bare txid; its topic tm_<txid>", () => {
+    expect(namesOf(txid.toUpperCase())).toEqual({ tokenId: txid, topic: `tm_${txid}` });
   });
   it("the SDK action builds the deploy from it: output 0, the payload as given", async () => {
     const proto = new ProtoWallet(PrivateKey.fromHex("01".repeat(32)));
