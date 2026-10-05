@@ -142,7 +142,8 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.1.0.tar.gz",
+        // No tag yet: by commit (`zig fetch --save git+https://github.com/shruggr/skein-mandala#<commit>`).
+        .url = "git+https://github.com/shruggr/skein-mandala#<commit>",
         .hash = "<zig fetch prints it>",
     },
 },
