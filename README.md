@@ -35,7 +35,7 @@ Exported Zig modules:
 ## Use it
 
 **The engine.** The components need the overlay engine with topic prefixes:
-skein-overlay's branch `topic-patterns` (1f22d36, not merged; it adds
+skein-overlay's branch `topic-patterns` (eac7ddb, not merged; it adds
 `config.overlay.prefixes`, docs/MANDALA.md "The engine"). `bin/overlay.wasm`
 here is built from that commit. skein-overlay 0.4.1 does not serve an
 activated topic.
@@ -190,7 +190,7 @@ checkout: `zig build --fork=../skein-overlay`.
 | | |
 |---|---|
 | this app and package | 0.1.0 |
-| skein-overlay | v0.4.1 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` from branch `topic-patterns` (1f22d36) |
+| skein-overlay | v0.4.1 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` from branch `topic-patterns` (eac7ddb) |
 | skein-sdk | v0.5.1, through skein-overlay (modules `chain`, `app`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |
 

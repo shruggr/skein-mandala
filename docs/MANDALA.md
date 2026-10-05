@@ -130,7 +130,7 @@ remove what the topic admitted or the lookup's index of it.
 ## The engine
 
 The engine reads the list through `config.overlay.prefixes` (skein-overlay
-branch `topic-patterns`, 1f22d36; not merged, not pushed):
+branch `topic-patterns`, eac7ddb; not merged, not pushed):
 
 ```json
 "prefixes": {"tm_": {"program": "mandala-topic", "active": "mandala"}}
