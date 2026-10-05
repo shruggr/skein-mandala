@@ -874,6 +874,7 @@ const Ls = struct {
     a: std.mem.Allocator,
     s: w.store.Store,
     state: ?[]const u8 = null,
+    service: []const u8 = ls.service_name,
 
     fn uints(a: std.mem.Allocator, xs: []const u32) ![]Value {
         const out = try a.alloc(Value, xs.len);
@@ -885,7 +886,7 @@ const Ls = struct {
         const head = [_]w.cbor.Entry{
             .{ .key = "kind", .value = .{ .text = "lookup-hook" } },
             .{ .key = "app", .value = .{ .text = "mandala" } },
-            .{ .key = "service", .value = .{ .text = ls.service_name } },
+            .{ .key = "service", .value = .{ .text = self.service } },
             .{ .key = "topic", .value = .{ .text = t } },
         };
         const arg: Value = .{ .map = try std.mem.concat(self.a, w.cbor.Entry, &.{ &head, rest }) };
@@ -921,7 +922,7 @@ const Ls = struct {
 
     /// The query's outputs as `<txid hex>:<vout>`.
     fn ask(self: *Ls, q: []const w.cbor.Entry) ![]const []const u8 {
-        var svc = try lookup.Service.load(self.a, self.s, ls.service_name, ls.spec.maps, self.state);
+        var svc = try lookup.Service.load(self.a, self.s, self.service, ls.spec.maps, self.state);
         var ch = try lookup.Chain.load(self.a, self.s, null, .regtest);
         const ans = try ls.answer(self.a, &svc, &ch, .{ .map = try self.a.dupe(w.cbor.Entry, q) });
         const outs = ans.output_list;
@@ -1104,6 +1105,16 @@ test "tokens: a token id's topic; the list sorted, each once; the events; the re
     }
     const ans = try tokens.answerOf(a, tx_a ++ "_0", ta, true);
     try testing.expect(ans.get("active").?.bool);
+
+    // The discovery topic is switched on the same list, by its name.
+    try testing.expect(tokens.isTopic("tm_mandala_deploys") and tokens.isTopic(ta) and tokens.isTopic(tb));
+    try testing.expect(!tokens.isTopic("tm_mandala") and !tokens.isTopic("tm_" ++ tx_a ++ "_0") and !tokens.isTopic("tm_demo"));
+    list = (try tokens.with(a, list, "tm_mandala_deploys")).?;
+    try testing.expectEqualStrings("tm_mandala_deploys", list[list.len - 1]);
+    const dev = try tokens.events(a, "unsubscribe", "tm_mandala_deploys");
+    try testing.expectEqualStrings("tm_mandala_deploys-proof", sdk_cbor.Value.str(dev[2].get("topic")).?);
+    const dans = try tokens.answerOf(a, null, "tm_mandala_deploys", false);
+    try testing.expect(dans.get("tokenId") == null and !dans.get("active").?.bool);
 }
 
 test "program: metadata and documentation through the topic contract's describe" {
@@ -1115,7 +1126,7 @@ test "program: metadata and documentation through the topic contract's describe"
     const m = try topic.describe(a, program, "metadata", arg);
     try testing.expectEqualStrings(t, m.getText("name").?);
     try testing.expect(std.mem.indexOf(u8, m.getText("shortDescription").?, "a5a5") != null);
-    try testing.expectEqualStrings("0.1.0", m.getText("version").?);
+    try testing.expectEqualStrings("0.2.0", m.getText("version").?);
     const d = try topic.describe(a, program, "documentation", arg);
     try testing.expect(std.mem.startsWith(u8, d.getText("documentation").?, "# Mandala token topic"));
     const ld = try lookup.describe(a, ls, "documentation", .{ .map = &.{ .{ .key = "kind", .value = text("lookup-describe") }, .{ .key = "service", .value = text("ls_mandala") } } });
@@ -1150,4 +1161,99 @@ test "program: a BRC-161 token deployed at output 0 is tm_<txid>, its id <txid>_
     const rt = try topic.judge(a, s, program.identify, try callArgs(a, t, transfer_cid, &.{0}));
     try testing.expectEqualSlices(u32, &.{ 0, 1 }, try uintsOf(a, rt.get("outputsToAdmit").?));
     try testing.expectEqualSlices(u32, &.{0}, try uintsOf(a, rt.get("coinsToRetain").?));
+}
+
+// --- the discovery topic (tm_mandala_deploys) and its lookup (ls_mandala_deploys) ---
+
+test "deploys: every valid deploy output of any token, nothing else, through the topic contract" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var ms = w.store.MemStore.init(testing.allocator);
+    defer ms.deinit();
+    const s = ms.store();
+    const f = try Fixtures.init(a);
+    const t = names.deploys_topic;
+    try testing.expectEqualStrings("tm_mandala_deploys", t);
+    try testing.expect(token.tokenIdOf(t) == null); // no token's topic
+
+    inline for (.{ "fund", "legacy_fund" }) |nm| _ = try s.putBitcoin(a, .tx, f.raws.get(nm).?);
+    const Case = struct { name: []const u8, admit: []const u32 };
+    for ([_]Case{
+        .{ .name = "token_deploy", .admit = &.{0} }, // BRC-162 deploy at output 0
+        .{ .name = "legacy_deploy0", .admit = &.{0} }, // BRC-161 deploy+mint at output 0
+        .{ .name = "legacy_deploy1", .admit = &.{1} }, // BRC-161 deploy+mint at output 1
+        .{ .name = "legacy_auth_deploy", .admit = &.{0} }, // BRC-161 deploy+auth
+        .{ .name = "pool_deploy", .admit = &.{} }, // token value outputs, no deploy
+        .{ .name = "swap_bsv_in", .admit = &.{} },
+        .{ .name = "legacy_transfer", .admit = &.{} },
+        .{ .name = "legacy_mint", .admit = &.{} },
+        .{ .name = "fund", .admit = &.{} },
+    }) |c| {
+        const cid = try s.putBitcoin(a, .tx, f.raws.get(c.name).?);
+        const r = try topic.judge(a, s, program.identify, try callArgs(a, t, cid, &.{}));
+        try testing.expectEqualSlices(u32, c.admit, try uintsOf(a, r.get("outputsToAdmit").?));
+    }
+
+    // A binary deploy anywhere but output 0 is no deploy; a binary output with an id is not one either.
+    const tx: bsv21.Tx = .{ .txid = id_a, .inputs = &.{}, .outputs = &.{
+        .{ .script = &p2pkh_lock, .satoshis = 1 },
+        .{ .script = tokenScript(a, null, 100, null), .satoshis = 1 },
+        .{ .script = tokenScript(a, id_a, 5, null), .satoshis = 1 },
+    } };
+    try testing.expectEqual(@as(usize, 0), (try token.judgeDeploys(a, tx, &.{})).outputs_to_admit.len);
+    try testing.expect((try token.deployOf(a, id_a, 1, tokenScript(a, null, 100, null))) == null);
+    const d0 = (try token.deployOf(a, id_a, 0, tokenScript(a, null, 100, null))).?;
+    try testing.expectEqual(@as(u32, 0), d0.vout);
+    // A deploy carrying a payload (the metadata it was deployed with) is a deploy like any other.
+    const cbor_map = [_]u8{ 0x04, 0xa1, 0x61, 0x78, 0x01 };
+    try testing.expect((try token.deployOf(a, id_a, 0, tokenScript(a, null, 0, &cbor_map))) != null);
+
+    // Its metadata and documentation are its own.
+    const arg: Value = .{ .map = &.{ .{ .key = "kind", .value = text("topic-describe") }, .{ .key = "topic", .value = text(t) } } };
+    try testing.expect(std.mem.startsWith(u8, (try topic.describe(a, program, "documentation", arg)).getText("documentation").?, "# Mandala token deploys"));
+}
+
+test "deploys lookup: {tokenId} → the deploy output; other topics ignored; kept once spent, dropped on rejection" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var ms = w.store.MemStore.init(testing.allocator);
+    defer ms.deinit();
+    const f = try Fixtures.init(a);
+    var l: Ls = .{ .a = a, .s = ms.store(), .service = names.deploys_service };
+    const t = names.deploys_topic;
+    const deploy = f.raws.get("token_deploy").?;
+    const d1 = f.raws.get("legacy_deploy1").?;
+    const id = try std.fmt.allocPrint(a, "{s}_0", .{&w.header.toHex(f.id)});
+    const id1 = try std.fmt.allocPrint(a, "{s}_1", .{&w.header.toHex(w.beef.txidOf(d1))});
+
+    try expectOps(&.{}, try l.ask(&.{.{ .key = "tokenId", .value = text(id) }}));
+    try l.admitted(t, deploy, &.{0});
+    try l.admitted(t, d1, &.{1});
+    try expectOps(&.{opName(a, deploy, 0)}, try l.ask(&.{.{ .key = "tokenId", .value = text(id) }}));
+    try expectOps(&.{opName(a, d1, 1)}, try l.ask(&.{.{ .key = "tokenId", .value = text(id1) }}));
+
+    // A token topic's admission is not this service's; ls_mandala ignores the discovery topic.
+    var buf: [names.max_topic_len]u8 = undefined;
+    const ld0 = f.raws.get("legacy_deploy0").?;
+    try l.admitted(names.topicName(&buf, .{ .txid = w.beef.txidOf(ld0) }), ld0, &.{0});
+    try expectOps(&.{}, try l.ask(&.{.{ .key = "tokenId", .value = text(try std.fmt.allocPrint(a, "{s}_0", .{&w.header.toHex(w.beef.txidOf(ld0))})) }}));
+    var lv: Ls = .{ .a = a, .s = ms.store() };
+    try lv.admitted(t, deploy, &.{0});
+    try expectOps(&.{}, try lv.ask(&.{.{ .key = "authoritiesTokenId", .value = text(id) }}));
+
+    // Spent: still listed (a registry). Rejected: gone.
+    try l.spent(t, deploy, 0, f.raws.get("pool_deploy").?);
+    try expectOps(&.{opName(a, deploy, 0)}, try l.ask(&.{.{ .key = "tokenId", .value = text(id) }}));
+    try l.rejected(t, deploy);
+    try expectOps(&.{}, try l.ask(&.{.{ .key = "tokenId", .value = text(id) }}));
+    try expectOps(&.{opName(a, d1, 1)}, try l.ask(&.{.{ .key = "tokenId", .value = text(id1) }}));
+
+    // Only {tokenId}.
+    try testing.expectError(error.BadQuery, ls.parseDeploysQuery(.{ .map = &.{ .{ .key = "tokenId", .value = text(id) }, .{ .key = "limit", .value = .{ .uint = 1 } } } }));
+    try testing.expectError(error.BadQuery, ls.parseDeploysQuery(.{ .map = &.{.{ .key = "tokenId", .value = text("x") }} }));
+    try testing.expectError(error.UnsupportedQuery, ls.parseDeploysQuery(.{ .map = &.{} }));
+    const ld = try lookup.describe(a, ls, "documentation", .{ .map = &.{ .{ .key = "kind", .value = text("lookup-describe") }, .{ .key = "service", .value = text(names.deploys_service) } } });
+    try testing.expect(std.mem.startsWith(u8, ld.getText("documentation").?, "# Mandala token deploys lookup"));
 }

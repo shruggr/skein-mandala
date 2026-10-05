@@ -1,7 +1,7 @@
 {
   "kind": "app",
   "name": "mandala",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "programs": {
     "overlay": "bin/overlay.wasm",
     "mandala-topic": "bin/mandala-topic.wasm",
@@ -14,7 +14,8 @@
         "tm_": {"program": "mandala-topic", "active": "mandala"}
       },
       "lookups": {
-        "ls_mandala": {"program": "mandala-lookup", "prefixes": ["tm_"]}
+        "ls_mandala": {"program": "mandala-lookup", "prefixes": ["tm_"]},
+        "ls_mandala_deploys": {"program": "mandala-lookup", "prefixes": ["tm_"]}
       }
     }
   },
@@ -22,8 +23,8 @@
     {
       "interface": "mandala.tokens/1",
       "functions": {
-        "activate":   {"writes": true, "args": {"tokenId": "string"}, "answer": {"tokenId": "string", "topic": "string", "active": "bool"}},
-        "deactivate": {"writes": true, "args": {"tokenId": "string"}, "answer": {"tokenId": "string", "topic": "string", "active": "bool"}}
+        "activate":   {"writes": true, "args": {"tokenId?": "string", "topic?": "string"}, "answer": {"tokenId?": "string", "topic": "string", "active": "bool"}},
+        "deactivate": {"writes": true, "args": {"tokenId?": "string", "topic?": "string"}, "answer": {"tokenId?": "string", "topic": "string", "active": "bool"}}
       }
     }
   ],
@@ -36,5 +37,5 @@
     {"address": "mandala", "sender": "$owner", "program": "mandala-topic"},
     {"transport": "libp2p", "address": "tm_", "prefix": true, "sender": "*", "program": "overlay", "fn": "submit", "filter": "beef"}
   ],
-  "description": "Mandala tokens (BRC-162; docs/MANDALA.md): one overlay topic per token, tm_<txid>, judged by the token rules alone (mandala-topic), and the lookup service ls_mandala (mandala-lookup: a token's unspent value outputs, its authority outputs, one output by outpoint), on the overlay engine (shruggr/skein-overlay, required: chain/1). Topics are served once activated: the owner's mandala.tokens.activate {tokenId} writes the token list under <app>/mandala and subscribes the topic's gossip; deactivate undoes it. The libp2p prefix row tm_ takes every activated topic's messages."
+  "description": "Mandala tokens (BRC-162; docs/MANDALA.md): one overlay topic per token, tm_<txid>, judged by the token rules alone (mandala-topic), the discovery topic tm_mandala_deploys (every token's deploy output), the lookup service ls_mandala (mandala-lookup: a token's unspent value outputs, its authority outputs, one output by outpoint) and ls_mandala_deploys (a token id's deploy output), on the overlay engine (shruggr/skein-overlay, required: chain/1). Topics are served once activated: the owner's mandala.tokens.activate {tokenId} (or {topic: tm_mandala_deploys}) writes the token list under <app>/mandala and subscribes the topic's gossip; deactivate undoes it. The libp2p prefix row tm_ takes every activated topic's messages."
 }

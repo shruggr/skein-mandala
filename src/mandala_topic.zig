@@ -48,23 +48,51 @@ pub fn txOf(a: Allocator, call: topic.Call) !bsv21.Tx {
 }
 
 pub fn identify(a: Allocator, call: topic.Call) anyerror!topic.Instructions {
+    if (eql(u8, call.topic, mandala.name.deploys_topic)) {
+        const d = try token.judgeDeploys(a, try txOf(a, call), call.previous_coins);
+        return .{ .outputs_to_admit = d.outputs_to_admit, .coins_to_retain = d.coins_to_retain };
+    }
     const id = token.tokenIdOf(call.topic) orelse return error.UnknownTopic;
     const v = try token.judge(a, id, try txOf(a, call), call.previous_coins);
     return .{ .outputs_to_admit = v.outputs_to_admit, .coins_to_retain = v.coins_to_retain };
 }
 
 pub fn metadata(a: Allocator, t: []const u8) anyerror!topic.Metadata {
+    if (eql(u8, t, mandala.name.deploys_topic)) return .{
+        .short_description = "Mandala token deploys (BRC-162, BRC-161): every token's deploy output, with the metadata it was deployed with.",
+        .version = version,
+        .information_url = "https://github.com/shruggr/skein-mandala",
+    };
     const id = token.tokenIdOf(t) orelse return .{ .short_description = "Not a Mandala token topic." };
     var r = id.txid;
     std.mem.reverse(u8, &r);
     return .{
         .short_description = try std.fmt.allocPrint(a, "Mandala token {s}_{d} (BRC-162{s}): its outputs as the token rules allow.", .{ &std.fmt.bytesToHex(r, .lower), id.vout, if (id.kind == .legacy) ", deployed under BRC-161" else "" }),
-        .version = "0.1.0",
+        .version = version,
         .information_url = "https://github.com/shruggr/skein-mandala",
     };
 }
 
-pub fn documentation(_: Allocator, _: []const u8) anyerror![]const u8 {
+pub const version = "0.2.0";
+
+pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
+    if (eql(u8, t, mandala.name.deploys_topic)) return
+    \\# Mandala token deploys (tm_mandala_deploys)
+    \\
+    \\The discovery topic: every token's deploy output, of every Mandala token. A
+    \\registry of what tokens exist and the metadata each was deployed with (the deploy
+    \\payload: decimals, symbol, icon, ...).
+    \\
+    \\It admits an output that is a valid deploy and nothing else:
+    \\
+    \\- a BRC-162 deploy (id `OP_0`) at output 0: the token `<txid>_0`;
+    \\- a BRC-161 `deploy+mint` or `deploy+auth` inscription at any output: the token
+    \\  `<txid>_<vout>`.
+    \\
+    \\No other rule and no governance. It is served while activated
+    \\(`mandala.tokens.activate {topic: "tm_mandala_deploys"}`).
+    \\
+    ;
     return
     \\# Mandala token topic (tm_<txid>)
     \\
@@ -88,7 +116,8 @@ pub fn documentation(_: Allocator, _: []const u8) anyerror![]const u8 {
     \\control check: the protocol only.
     \\
     \\The overlay serves a token's topic once it is activated
-    \\(`mandala.tokens.activate {tokenId}`).
+    \\(`mandala.tokens.activate {tokenId}`). The discovery topic `tm_mandala_deploys`
+    \\holds every token's deploy output.
     \\
     ;
 }
@@ -140,8 +169,12 @@ const Change = enum { activate, deactivate };
 
 fn change(cl: *app.Call, how: Change) !Value {
     const a = cl.a;
-    const id = Value.str(cl.args.get("tokenId")).?;
-    const t = (try tokens.topicOf(a, id)) orelse return sk.report("tokenId: want <txid>_<vout> (64 lowercase hex, display order; the vout decimal)");
+    const id = Value.str(cl.args.get("tokenId"));
+    const named = Value.str(cl.args.get("topic"));
+    if ((id == null) == (named == null)) return sk.report("want one of tokenId (<txid>_<vout>) or topic (tm_mandala_deploys, or a token's topic)");
+    const t: []const u8 = if (id) |x|
+        (try tokens.topicOf(a, x)) orelse return sk.report("tokenId: want <txid>_<vout> (64 lowercase hex, display order; the vout decimal)")
+    else if (tokens.isTopic(named.?)) named.? else return sk.report("topic: want tm_mandala_deploys or tm_<txid>[_<vout>]");
     const head = try tokens.headName(a, cl.app);
     const rec: ?Value = if (try cl.head(head)) |r| try cl.get(r) else null;
     const list = try tokens.topicsOf(a, rec);

@@ -26,6 +26,25 @@ fn fromName(n: name.TokenId) bsv21.TokenId {
     } };
 }
 
+/// The token whose deploy output `vout` of `txid` is, or null when that output is not a valid
+/// deploy (BRC-162 / BRC-161 through bsv21.zig): a binary deploy at output 0 (the token
+/// `<txid>_0`), or a BRC-161 `deploy+mint` / `deploy+auth` inscription at any output (`<txid>_<vout>`).
+pub fn deployOf(a: std.mem.Allocator, txid: [32]u8, vout: u32, script: []const u8) error{OutOfMemory}!?bsv21.TokenId {
+    const id: bsv21.TokenId = .{ .txid = txid, .vout = vout, .kind = if (vout == 0) .native else .legacy };
+    const t = (try bsv21.tokenOf(a, id, txid, vout, script)) orelse return null;
+    return if (t.role == .deploy) id else null;
+}
+
+/// The discovery topic's verdict (`tm_mandala_deploys`): every output that is a valid deploy of
+/// any token, nothing else; the coins it spends retained (a registry keeps what it admitted).
+pub fn judgeDeploys(a: std.mem.Allocator, tx: bsv21.Tx, previous_coins: []const u32) !Verdict {
+    var admit: std.ArrayList(u32) = .empty;
+    for (tx.outputs, 0..) |o, i| {
+        if ((try deployOf(a, tx.txid, @intCast(i), o.script)) != null) try admit.append(a, @intCast(i));
+    }
+    return .{ .outputs_to_admit = admit.items, .coins_to_retain = if (admit.items.len > 0) try a.dupe(u32, previous_coins) else &.{} };
+}
+
 pub const Verdict = struct {
     outputs_to_admit: []const u32 = &.{},
     coins_to_retain: []const u32 = &.{},

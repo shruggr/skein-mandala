@@ -19,6 +19,10 @@
 const std = @import("std");
 
 pub const topic_prefix = "tm_";
+/// The discovery topic (shruggr/skein#120 item 11): every token's deploy output, one topic.
+pub const deploys_topic = "tm_mandala_deploys";
+/// Its lookup service.
+pub const deploys_service = "ls_mandala_deploys";
 
 /// The longest `<txid>[_<vout>]` suffix: 64 hex, `_`, 10 digits.
 pub const max_suffix_len = 64 + 1 + 10;

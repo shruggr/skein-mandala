@@ -10,7 +10,8 @@ app; one topic per token; the protocol first; governance later, per token.
 | component | file | role | what |
 |---|---|---|---|
 | topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>` by the token rules; keeps the token list (`mandala.tokens/1`) |
-| lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index |
+| lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output |
+| discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala_deploys`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
 | the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.5.0 |
 
@@ -58,7 +59,7 @@ exactly when the rules admit it. There is no ownership, authority-chain or
 control check.
 
 **Metadata and documentation** (skein-overlay#2): the topic's name, a
-one-line description naming the token, version 0.1.0; the documentation is
+one-line description naming the token, version 0.2.0; the documentation is
 the rule above in markdown.
 
 ## The lookup
@@ -101,12 +102,38 @@ takes the output out of its index and records the spender. `rejected`
 removes the transaction's outputs and returns the outputs it had spent. A
 hook for a topic that is not a token's does nothing.
 
+## The discovery topic
+
+`tm_mandala_deploys` (#120 item 11): one fixed topic, not per token, that
+admits deploy outputs only, of every token. It is a registry of what tokens
+exist and the metadata each was deployed with (the deploy's payload:
+decimals, symbol, icon, ...).
+
+- `mandala-topic` judges it when called with that topic name (token.zig
+  `judgeDeploys`): an output is admitted when it is a valid deploy by the
+  rules above, a BRC-162 deploy (id `OP_0`) at output 0 or a BRC-161
+  `deploy+mint` / `deploy+auth` inscription at any output. Nothing else is
+  admitted, and nothing about governance is checked. The coins an admitted
+  transaction spends are retained.
+- `ls_mandala_deploys` is `mandala-lookup` called as that service. Its map
+  `deploys` (token → nothing; a token id is its deploy outpoint) holds every
+  deploy the topic admitted. `{tokenId}` answers the deploy output, an
+  output-list of one (empty if none); any other key is refused. A deploy
+  stays listed once spent (a registry); a rejected transaction's deploys are
+  removed. This is the shape of ts-stack's `metadataTokenId`, under its own
+  key.
+- It is switched like a token: `mandala.tokens.activate {topic:
+  "tm_mandala_deploys"}` puts it on the same list, and the topic is served
+  under the `tm_` prefix with the same events. It is not in
+  `config.overlay.topics`: an entry there is served and subscribed from the
+  install on, which no message can turn off.
+
 ## Activation
 
 The overlay serves only the tokens the owner activated (#120 item 2, on
 skein #119).
 
-1. The owner sends `{fn: "mandala.tokens.activate", args: {tokenId}}` to the
+1. The owner sends `{fn: "mandala.tokens.activate", args: {tokenId}}` (or `{topic}`) to the
    app's box. The row `{address: <app>, sender: "$owner", program:
    "mandala-topic"}` takes it; the SDK's dispatch helper checks the args
    against `provides`.
@@ -159,20 +186,14 @@ engine changed.
   `deploySig.ts`, `controls.ts`, `AssetStateReducer.ts`.
 - **The registry**: the registry token and its topic and lookup, ts-stack
   `src/mandala-registry`.
-- **The other three queries**: `metadataTokenId` (the deploy output),
+- **The other three queries**: `metadataTokenId` (the deploy output; the
+  discovery lookup answers the same as `{tokenId}`),
   `assetStateTokenId` (the token's admin state), `adminHistoryTokenId`
   (committed admin actions in fold order); ts-stack
   `src/mandala/MandalaLookupService.ts`. They answer from governance state.
-- **An all-tokens topic**: one topic for every Mandala token (wanted later
-  for the 1sat hosted service). It gets its own name when it comes; Deggen's
-  are `tm_mandala` and `tm_mandala_registry`.
+- **An all-tokens topic**: one topic for every output of every Mandala
+  token (wanted later for the 1sat hosted service). It gets its own name
+  when it comes; Deggen's are `tm_mandala` and `tm_mandala_registry`. The
+  discovery topic holds deploys only.
 - An activation profile (#120 item 5: the manager's settings in the app
   record), a list function, and an equivalence test in skein.
-
-## Open
-
-- **skein's install** requires at least one topic in
-  `config.overlay.topics` (src/host/manifest.ts `overlayWiring`), and
-  checks a lookup's `topics` against them. A manifest whose topics are all
-  activated live has none, so `etc/app.json` is refused until skein accepts
-  `prefixes` there (and derives no rows from it).

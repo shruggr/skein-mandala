@@ -3,7 +3,7 @@
 The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
-library they are built on, as a Zig package. Version **0.1.0**.
+library they are built on, as a Zig package. Version **0.2.0**.
 
 ## What it is
 
@@ -17,6 +17,10 @@ library they are built on, as a Zig package. Version **0.1.0**.
 - **The lookup service** (`bin/mandala-lookup.wasm`, `ls_mandala`): a
   token's unspent value outputs, its unspent authority outputs, one output
   by outpoint. Its index is under its own head, `<app>/ls_mandala`.
+- **The discovery topic** `tm_mandala_deploys` (a mode of
+  `mandala-topic`): every token's deploy output, so the metadata each token
+  was deployed with can be found. Its lookup `ls_mandala_deploys` (a mode of
+  `mandala-lookup`) answers `{tokenId}` with the deploy output.
 - **Live activation.** A topic is served once its token is activated: the
   owner's `mandala.tokens.activate {tokenId}` writes the token list under
   `<app>/mandala` and emits `subscribe` for the topic's three GossipSub
@@ -47,10 +51,6 @@ skein-host install https://github.com/shruggr/skein-chain --instance <handle>
 skein-host install https://github.com/shruggr/skein-mandala --instance <handle>
 ```
 
-skein's install refuses this manifest as it stands: it requires at least
-one topic in `config.overlay.topics`, and the Mandala topics are all
-activated live (docs/MANDALA.md "Open").
-
 **Activate a token**: the owner's message in the app's box (skein
 docs/APPS.md §4), `skein plan` / `skein send` or any BRC-100 wallet:
 
@@ -60,7 +60,8 @@ body: {"fn": "mandala.tokens.activate", "args": {"tokenId": "<txid>_0"}}
 ```
 
 The answer is `{fn, request, replyTo, result: {tokenId, topic, active:
-true}}`. The topic `tm_<txid>` is served from the next step, and the host's
+true}}`. The discovery topic is switched the same way by its name:
+`{"fn": "mandala.tokens.activate", "args": {"topic": "tm_mandala_deploys"}}`. The topic `tm_<txid>` is served from the next step, and the host's
 libp2p node subscribes `tm_<txid>`, `tm_<txid>-admit` and `tm_<txid>-proof`.
 
 **Submit** to the app's base URL (`https://<handle>.<host>/mandala`; local:
@@ -80,6 +81,7 @@ POST <base>/lookup
 {"service": "ls_mandala", "query": {"tokenId": "<txid>_0", "limit": 10}}
 {"service": "ls_mandala", "query": {"authoritiesTokenId": "<txid>_0"}}
 {"service": "ls_mandala", "query": {"txid": "<txid>", "outputIndex": 1}}
+{"service": "ls_mandala_deploys", "query": {"tokenId": "<txid>_0"}}
 ```
 
 Each answer is an output-list: `{type: "output-list", outputs: [{beef,
@@ -102,18 +104,22 @@ AMM) carries these in its tree and manifest:
      "prefixes": {"tm_": {"program": "mandala-topic", "active": "mandala"}},
      "lookups": {
        "ls_mandala": {"program": "mandala-lookup", "prefixes": ["tm_"]},
+       "ls_mandala_deploys": {"program": "mandala-lookup", "prefixes": ["tm_"]},
        "ls_<yours>": {"program": "<your lookup>", "prefixes": ["tm_"]}
      }
    }
    ```
 
    `active` must be `"mandala"`: the topic manager keeps the list under
-   `<app>/mandala`. A lookup service of the app's own listens to the
+   `<app>/mandala`. The discovery topic `tm_mandala_deploys` is under the
+   same prefix (served while on the list), not in `topics`: a `topics`
+   entry would be served and subscribed from the install on, with no
+   switch. A lookup service of the app's own listens to the
    activated topics with `"prefixes": ["tm_"]`. Gossip is on for every
    topic unless `gossip` turns one off.
 3. **`provides`**: the `mandala.tokens/1` interface as in `etc/app.json`
-   (`activate`, `deactivate`, each `writes: true`, args `{tokenId:
-   "string"}`). The SDK's dispatch helper reads the declaration from the
+   (`activate`, `deactivate`, each `writes: true`, args `{"tokenId?":
+   "string", "topic?": "string"}`, one of the two). The SDK's dispatch helper reads the declaration from the
    app record.
 4. **The rows**:
    - `{"address": "<app>", "sender": "$owner", "program": "mandala-topic"}`:
@@ -141,7 +147,7 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.1.0.tar.gz",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.2.0.tar.gz",
         .hash = "<zig fetch --save prints it>",
     },
 },
@@ -189,7 +195,7 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app and package | 0.1.0 (tag `v0.1.0`) |
+| this app and package | 0.2.0 (tag `v0.2.0`) |
 | skein-overlay | v0.5.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.5.1, through skein-overlay (modules `chain`, `app`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |

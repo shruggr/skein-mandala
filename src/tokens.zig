@@ -16,6 +16,10 @@
 //! non-zero vout is `tm_<txid>_<vout>`, a BRC-161 token deployed at that
 //! output.
 //!
+//! The discovery topic `tm_mandala_deploys` is switched the same way, by its
+//! topic name (`{topic: "tm_mandala_deploys"}`): it is served under the same
+//! prefix while it is on the list.
+//!
 //! Activating a token writes the list and emits `subscribe` for `<topic>`,
 //! `<topic>-admit` and `<topic>-proof`; deactivating removes it and emits
 //! `unsubscribe` for the same three (skein docs/OVERLAY.md "How an overlay
@@ -59,6 +63,11 @@ pub fn topicOf(a: Allocator, token_id: []const u8) !?[]u8 {
     const id = parseTokenId(token_id) orelse return null;
     var buf: [name.max_topic_len]u8 = undefined;
     return try a.dupe(u8, name.topicName(&buf, id));
+}
+
+/// Whether `t` is a topic this list may hold: the discovery topic, or a token's topic.
+pub fn isTopic(t: []const u8) bool {
+    return std.mem.eql(u8, t, name.deploys_topic) or name.tokenIdOf(t) != null;
 }
 
 /// The topics a list record names (null: no list yet, none).
@@ -122,10 +131,10 @@ pub fn events(a: Allocator, event: []const u8, topic: []const u8) ![suffixes.len
     return out;
 }
 
-/// The answer of activate and deactivate: `{tokenId, topic, active}`.
-pub fn answerOf(a: Allocator, token_id: []const u8, topic: []const u8, active: bool) !Value {
+/// The answer of activate and deactivate: `{tokenId?, topic, active}` (`tokenId` when asked by it).
+pub fn answerOf(a: Allocator, token_id: ?[]const u8, topic: []const u8, active: bool) !Value {
     var m = cbor.MapBuilder.init(a);
-    try m.put("tokenId", cbor.string(token_id));
+    if (token_id) |x| try m.put("tokenId", cbor.string(x));
     try m.put("topic", cbor.string(topic));
     try m.put("active", .{ .bool = active });
     return m.value();

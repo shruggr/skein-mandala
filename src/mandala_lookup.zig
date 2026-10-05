@@ -29,6 +29,15 @@
 //! neither. `spent` takes the output out of its index and records its
 //! spender; `rejected` drops the transaction's outputs and gives back the
 //! ones it had spent. A hook for a topic that is not a token's does nothing.
+//!
+//! The same program is the discovery lookup `ls_mandala_deploys` (by the
+//! service name it is called as): over `tm_mandala_deploys` only, the map
+//!
+//!   deploys      tok → null                       every admitted deploy (a token id is its deploy outpoint)
+//!
+//! `admitted` adds each valid deploy output (token.zig `deployOf`), `spent`
+//! does nothing (a registry), `rejected` removes the transaction's deploys;
+//! `{tokenId}` answers the deploy output, an output-list of one.
 const std = @import("std");
 const c = @import("chain");
 const lookup = @import("lookup");
@@ -43,9 +52,16 @@ const Service = lookup.Service;
 const eql = std.mem.eql;
 
 pub const service_name = "ls_mandala";
+/// The discovery topic's lookup (shruggr/skein#120 item 11): `{tokenId}` → the token's deploy output.
+pub const deploys_service = mandala.name.deploys_service;
+const deploys_topic = mandala.name.deploys_topic;
+
+fn isDeploys(svc: *const Service) bool {
+    return eql(u8, svc.name, deploys_service);
+}
 
 pub const spec: lookup.Spec = .{
-    .maps = &.{ "values", "authorities", "outputs" },
+    .maps = &.{ "values", "authorities", "outputs", "deploys" },
     .answer = answer,
     .admitted = admitted,
     .spent = spent,
@@ -100,6 +116,15 @@ fn kindOf(a: Allocator, id: bsv21.TokenId, tx: lookup.Tx, vout: u32) !?Kind {
 }
 
 fn admitted(a: Allocator, svc: *Service, topic: []const u8, tx: lookup.Tx, outputs_to_admit: []const u32, _: []const u32) anyerror!void {
+    if (isDeploys(svc)) {
+        if (!eql(u8, topic, deploys_topic)) return;
+        for (outputs_to_admit) |vout| {
+            if (vout >= tx.tx.outputs.len) return error.BadArgs;
+            const id = (try token.deployOf(a, tx.txid, vout, tx.tx.outputs[vout].locking_script.bytes)) orelse continue;
+            try svc.map("deploys").add(&tokKey(id));
+        }
+        return;
+    }
     const id = token.tokenIdOf(topic) orelse return;
     const tk = tokKey(id);
     for (outputs_to_admit) |vout| {
@@ -119,6 +144,7 @@ fn entryOf(v: c.store.MValue) !Entry {
 }
 
 fn spent(a: Allocator, svc: *Service, topic: []const u8, outpoint: lookup.Outpoint, spending: lookup.Tx) anyerror!void {
+    if (isDeploys(svc)) return; // a registry: a deploy stays listed once spent
     _ = token.tokenIdOf(topic) orelse return;
     const op = opKey(outpoint.txid, outpoint.vout);
     const v = (try svc.map("outputs").get(&op)) orelse return; // not one it indexed
@@ -129,6 +155,14 @@ fn spent(a: Allocator, svc: *Service, topic: []const u8, outpoint: lookup.Outpoi
 }
 
 fn rejected(a: Allocator, svc: *Service, topic: []const u8, tx: lookup.Tx) anyerror!void {
+    if (isDeploys(svc)) {
+        if (!eql(u8, topic, deploys_topic)) return;
+        for (tx.tx.outputs, 0..) |o, vout| {
+            const id = (try token.deployOf(a, tx.txid, @intCast(vout), o.locking_script.bytes)) orelse continue;
+            _ = try svc.map("deploys").remove(&tokKey(id));
+        }
+        return;
+    }
     _ = token.tokenIdOf(topic) orelse return;
     // Its outputs vanish.
     for (0..tx.tx.outputs.len) |vout| {
@@ -209,7 +243,19 @@ fn page(a: Allocator, svc: *Service, index: []const u8, id: bsv21.TokenId, limit
     return out;
 }
 
+/// The discovery lookup's query: `{tokenId}` and nothing else.
+pub fn parseDeploysQuery(q: Value) !bsv21.TokenId {
+    if (q != .map) return error.BadQuery;
+    for (q.map) |e| if (!eql(u8, e.key, "tokenId")) return error.BadQuery;
+    return (try tokenField(q, "tokenId")) orelse error.UnsupportedQuery;
+}
+
 pub fn answer(a: Allocator, svc: *Service, _: *lookup.Chain, query: Value) anyerror!lookup.Answer {
+    if (isDeploys(svc)) {
+        const id = try parseDeploysQuery(query);
+        if (!(try svc.map("deploys").has(&tokKey(id)))) return .{ .output_list = &.{} };
+        return .{ .output_list = try a.dupe(lookup.Output, &.{.{ .txid = id.txid, .vout = id.vout }}) };
+    }
     if (!eql(u8, svc.name, service_name)) return error.UnknownService;
     switch (try parseQuery(query)) {
         .values => |p| return .{ .output_list = try page(a, svc, "values", p.id, p.limit, p.skip) },
@@ -222,15 +268,34 @@ pub fn answer(a: Allocator, svc: *Service, _: *lookup.Chain, query: Value) anyer
     }
 }
 
-pub fn metadata(_: Allocator, _: []const u8) anyerror!lookup.Metadata {
+pub fn metadata(_: Allocator, service: []const u8) anyerror!lookup.Metadata {
+    if (eql(u8, service, deploys_service)) return .{
+        .short_description = "Mandala token deploys: a token id's deploy output, with the metadata it was deployed with.",
+        .version = version,
+        .information_url = "https://github.com/shruggr/skein-mandala",
+    };
     return .{
         .short_description = "Mandala (BRC-162) token outputs: a token's unspent value outputs, its authority outputs, one output by outpoint.",
-        .version = "0.1.0",
+        .version = version,
         .information_url = "https://github.com/shruggr/skein-mandala",
     };
 }
 
-pub fn documentation(_: Allocator, _: []const u8) anyerror![]const u8 {
+pub const version = "0.2.0";
+
+pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
+    if (eql(u8, service, deploys_service)) return
+    \\# Mandala token deploys lookup service (ls_mandala_deploys)
+    \\
+    \\Indexes the deploy outputs `tm_mandala_deploys` admits, by token id.
+    \\
+    \\- `{ tokenId }`: the token's deploy output (`<txid>_0`, or `<txid>_<vout>` for a token
+    \\  deployed under BRC-161 at a non-zero output), with the metadata it was deployed with
+    \\  in its script. An output-list of one, or empty when the deploy was not admitted.
+    \\
+    \\A deploy stays listed once it is spent. Any other key is refused.
+    \\
+    ;
     return
     \\# Mandala token lookup service (ls_mandala)
     \\
