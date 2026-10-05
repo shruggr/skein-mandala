@@ -1,7 +1,7 @@
 {
   "kind": "app",
   "name": "mandala",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "programs": {
     "overlay": "bin/overlay.wasm",
     "mandala-topic": "bin/mandala-topic.wasm",

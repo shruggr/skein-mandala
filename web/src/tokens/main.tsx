@@ -1,0 +1,96 @@
+/**
+ * The token list of this overlay: the owner's page. Reads the list (the head
+ * `<app>/mandala`, through the explorer, the owner's read), and changes it by
+ * the owner's `mandala.tokens/1` messages to the app's box `<app>`.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useWallet } from "@1sat/react";
+import { mount } from "../shell";
+import { whereOf } from "../where";
+import { Instance } from "./instance";
+import { DISCOVERY, activate, answerOf, deactivate, discovery, tokenOfTopic, topicsOf, type Call } from "./list";
+
+const where = whereOf(location.href);
+
+function TokensPage() {
+  const { wallet, status } = useWallet();
+  const inst = useMemo(() => (wallet && status === "connected" && where ? new Instance(wallet, where.base) : undefined), [wallet, status]);
+  const [topics, setTopics] = useState<string[]>();
+  const [readErr, setReadErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState<{ ok: boolean; text: string }>();
+  const [tokenId, setTokenId] = useState("");
+
+  const load = useCallback(async () => {
+    if (!inst || !where) return;
+    try { setTopics(topicsOf(await inst.head(`${where.app}/mandala`))); setReadErr(""); }
+    catch (e) { setTopics(undefined); setReadErr((e as Error).message); }
+  }, [inst]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function run(label: string, c: Call) {
+    if (!inst || !where) return;
+    setBusy(label); setNote(undefined);
+    try {
+      const a = answerOf(await inst.call(where.app, c));
+      setNote(a.ok ? { ok: true, text: `${a.topic}: ${a.active ? "active" : "not active"}` } : { ok: false, text: a.message });
+    } catch (e) { setNote({ ok: false, text: (e as Error).message }); }
+    setBusy("");
+    await load();
+  }
+
+  if (!where) return <p className="bad">This page is served at <code>/&lt;app&gt;/mandala/tokens/</code>; its URL names no app.</p>;
+  let idProblem = "";
+  try { activate(tokenId); } catch (e) { idProblem = (e as Error).message; }
+  const tokenTopics = (topics ?? []).filter((t) => t !== DISCOVERY);
+  const discoveryOn = topics?.includes(DISCOVERY) ?? false;
+
+  return (
+    <>
+      <h1>Tokens on this overlay</h1>
+      <p className="mut small">The overlay serves only the tokens on this list: the topic <code>tm_&lt;txid&gt;</code> of each. Changing it is the owner's: a message from your wallet to the box <code>{where.app}</code> of <code>{where.base}</code>.</p>
+      {status !== "connected" && <p className="mut">Connect the owner's wallet.</p>}
+      {readErr && <p className="status bad">The list: {readErr}</p>}
+      {inst && (
+        <>
+          <div className="card">
+            <h2>Activate a token</h2>
+            <form className="row" onSubmit={(e) => { e.preventDefault(); if (!idProblem) void run("activate", activate(tokenId)); }}>
+              <input type="text" value={tokenId} onChange={(e) => setTokenId(e.target.value)} placeholder="<txid>_0" />
+              <button type="submit" className="go" disabled={!!busy || !!idProblem}>{busy === "activate" ? "Activating…" : "Activate"}</button>
+            </form>
+            {tokenId && idProblem && <p className="mut small">{idProblem}</p>}
+          </div>
+          <div className="card">
+            <h2>Active tokens</h2>
+            {topics === undefined ? <p className="mut small">{readErr ? "Not read." : "Reading…"}</p> : tokenTopics.length === 0 ? <p className="mut small">None.</p> : (
+              <table>
+                <thead><tr><th>token id</th><th>topic</th><th></th></tr></thead>
+                <tbody>
+                  {tokenTopics.map((t) => (
+                    <tr key={t}>
+                      <td><code>{tokenOfTopic(t) ?? ""}</code></td>
+                      <td><code>{t}</code></td>
+                      <td><button type="button" disabled={!!busy} onClick={() => void run(t, deactivate(t))}>{busy === t ? "Deactivating…" : "Deactivate"}</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="card">
+            <h2>Discovery</h2>
+            <label className="inline">
+              <input type="checkbox" checked={discoveryOn} disabled={!!busy || topics === undefined} onChange={(e) => void run("discovery", discovery(e.target.checked))} />
+              Serve <code>{DISCOVERY}</code>: every token's deploy output, so the metadata each token was deployed with can be found (lookup <code>ls_mandala_deploys</code>).
+            </label>
+          </div>
+          {busy && <p className="status wait">Sent; waiting for the answer…</p>}
+          {note && <p className={`status ${note.ok ? "ok" : "bad"}`}>{note.text}</p>}
+        </>
+      )}
+    </>
+  );
+}
+
+mount("Tokens", <TokensPage />);

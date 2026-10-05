@@ -3,7 +3,8 @@
 The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
-library they are built on, as a Zig package. Version **0.2.0**.
+library they are built on, as a Zig package, and two pages an app that
+carries the components serves. Version **0.3.0**.
 
 ## What it is
 
@@ -28,6 +29,8 @@ library they are built on, as a Zig package. Version **0.2.0**.
 - **The library** (Zig module `mandala`): the BRC-162 and BRC-161 output
   parsers and the BSV-21 rules, which the topic manager, the lookup service
   and an application's own programs share.
+- **The pages** (`www/`, built from `web/`): deploy a token; the owner's
+  token list. Below, "Pages".
 
 docs/MANDALA.md has each in full and what is not built.
 
@@ -147,7 +150,7 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.2.0.tar.gz",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.3.0.tar.gz",
         .hash = "<zig fetch --save prints it>",
     },
 },
@@ -166,6 +169,55 @@ const tok = mandala.brc162.decode(script) orelse return; // {id, amount, role, p
 const id = mandala.token.tokenIdOfString("<txid>_0").?;
 const j = try mandala.bsv21.judge(a, id, tx, previous_coins); // the rules over a bsv21.Tx
 ```
+
+## Pages
+
+Two static pages, for an app that carries the components (README "Carry
+the components in another app") to serve. The Mandala app is not installed
+by itself, so the pages are not served from this repo's manifest.
+
+| page | served at | what |
+|---|---|---|
+| deploy | `/<app>/mandala/deploy/` | **Deploy a token.** Open to anyone: a helper over the user's own wallet. Fields: symbol, decimals (0 to 18), fixed supply (an amount in whole tokens) or authority (amount 0, the deploy output mints), an optional icon outpoint (`txid_vout`). `@1sat/actions`' `deployMandala` builds the BRC-162 deploy at output 0, the wallet (connected through `@1sat/connect`) signs and broadcasts it and files it (basket `mandala <txid> 0`). The page shows the token id `<txid>_0` and the topic `tm_<txid>`. Nothing is sent to the overlay. If the filing step fails after the broadcast, "File it again" runs the SDK's `fileMandalaDeploy`. |
+| tokens | `/<app>/mandala/tokens/` | **Tokens on this overlay.** The owner's page. Lists the active topics (the head `<app>/mandala`, read through the instance's explorer, `/explore/head/<app>/mandala`, which is the owner's read). Activate by token id, deactivate a listed topic, and a switch for the discovery topic `tm_mandala_deploys`. Each change is the owner's message to the app's box `<app>`: `{fn: "mandala.tokens.activate" \| "mandala.tokens.deactivate", args: {tokenId} \| {topic}}`, sent the way skein-site sends the owner's messages (skein's `RawBox.send`: a BRC-104-signed `POST <base>/sendMessage`, BRC-231 CBOR, recipient the instance's identity from its signed answers). The answer is read from the thread the message launched, and the list is read again. A wallet that is not the owner's gets the explorer's 403, and its messages are refused. |
+
+The page takes the app's name and the instance from its own URL:
+`<base>/<app>/mandala/<page>/`, where `<base>` is the instance's origin or a
+host's `/@<handle>` dev form. So the same files work under any app name.
+
+**Embedding.** The app's build copies `www/*` into its own `www/mandala/`
+(`www/mandala/deploy/index.html`, `www/mandala/tokens/index.html`,
+`www/mandala/assets/…`), and its static rows serve that directory under
+`/<app>/` (skein-static's README has the rows). Asset paths are relative, so
+`/<app>/mandala/deploy` (redirected to `…/deploy/`) loads them from
+`/<app>/mandala/assets/`. Nothing is built on the skein: `www/` is committed
+as built.
+
+**The wallet's grouped request.** A wallet reads `manifest.json` at the
+origin's root, so these pages ship none. The deploy uses the protocol
+`[2, "mandala deploy"]` (counterparty self) and the label `mandala`; the
+tokens page uses a BRC-104 session (`[2, "auth message signature"]`,
+`[2, "server hmac"]`). Without them in the embedding app's manifest, the
+wallet asks for each when it is first used.
+
+**Build and test** (Node 22 or later, npm):
+
+```
+cd web
+npm ci
+SKEIN_DIR=../../skein npm run build    # typecheck, then ../www; SKEIN_DIR: a skein checkout at web/lib/SKEIN_REV
+npm test                               # vitest: the page's place from its URL, the deploy input and the SDK's deploy from it, the owner's calls, the list and the answers, the sendMessage request
+npm run typecheck
+```
+
+The stack is the AMM pages' (amm-poc `web/ui`): Vite, React, `@1sat/react`
+and `@1sat/connect` for the wallet, `@1sat/actions` for the deploy. The
+owner's messages and the explorer reads are skein's own client
+(`src/client/raw.ts`), bundled from the skein checkout as skein-site bundles
+it. `deployMandala` is imported from the package's `dist/mandala/deploy.js`,
+not its entry, which re-exports every action. The bundle is about 2 MB
+(480 KB gzipped). Most of it is `@1sat/connect`, which ships as one
+prebuilt 2 MB file. No analytics.
 
 ## Build and test
 
@@ -195,7 +247,8 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app and package | 0.2.0 (tag `v0.2.0`) |
+| this app and package | 0.3.0 (tag `v0.3.0`); the programs are unchanged since 0.2.0 and say 0.2.0 in their metadata |
+| the pages | `@1sat/actions` 0.0.233, `@1sat/react` 0.0.102, `@1sat/connect` 0.0.104, `@1sat/templates` 0.0.43, `@bsv/sdk` 2.8.6 (`web/package.json`, exact); skein's client at `web/lib/SKEIN_REV` |
 | skein-overlay | v0.5.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.5.1, through skein-overlay (modules `chain`, `app`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |

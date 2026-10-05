@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "skein/*": ["../../skein/*"],
+      "@1sat-actions/*": ["./node_modules/@1sat/actions/dist/*"],
+      "@bsv/sdk": ["./node_modules/@bsv/sdk/dist/types/mod.d.ts"],
+      "@ipld/dag-cbor": ["./node_modules/@ipld/dag-cbor/dist/src/index.d.ts"],
+      "multiformats/*": ["./node_modules/multiformats/dist/src/*.d.ts"]
+    }
+  },
+  "include": ["src", "test", "vite.config.ts"]
+}
