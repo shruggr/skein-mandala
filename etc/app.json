@@ -1,0 +1,40 @@
+{
+  "kind": "app",
+  "name": "mandala",
+  "version": "0.1.0",
+  "programs": {
+    "overlay": "bin/overlay.wasm",
+    "mandala-topic": "bin/mandala-topic.wasm",
+    "mandala-lookup": "bin/mandala-lookup.wasm"
+  },
+  "config": {
+    "overlay": {
+      "topics": {},
+      "prefixes": {
+        "tm_": {"program": "mandala-topic", "active": "mandala"}
+      },
+      "lookups": {
+        "ls_mandala": {"program": "mandala-lookup", "prefixes": ["tm_"]}
+      }
+    }
+  },
+  "provides": [
+    {
+      "interface": "mandala.tokens/1",
+      "functions": {
+        "activate":   {"writes": true, "args": {"tokenId": "string"}, "answer": {"tokenId": "string", "topic": "string", "active": "bool"}},
+        "deactivate": {"writes": true, "args": {"tokenId": "string"}, "answer": {"tokenId": "string", "topic": "string", "active": "bool"}}
+      }
+    }
+  ],
+  "requires": ["chain/1"],
+  "dispatch": [
+    {"transport": "http", "address": "/listTopicManagers", "sender": "*", "program": "overlay", "fn": "listTopicManagers"},
+    {"transport": "http", "address": "/listLookupServiceProviders", "sender": "*", "program": "overlay", "fn": "listLookupServiceProviders"},
+    {"transport": "http", "address": "/getDocumentationForTopicManager", "sender": "*", "program": "overlay", "fn": "topicDocumentation"},
+    {"transport": "http", "address": "/getDocumentationForLookupServiceProvider", "sender": "*", "program": "overlay", "fn": "lookupDocumentation"},
+    {"address": "mandala", "sender": "$owner", "program": "mandala-topic"},
+    {"transport": "libp2p", "address": "tm_", "prefix": true, "sender": "*", "program": "overlay", "fn": "submit", "filter": "beef"}
+  ],
+  "description": "Mandala tokens (BRC-162; docs/MANDALA.md): one overlay topic per token, tm_<txid>, judged by the token rules alone (mandala-topic), and the lookup service ls_mandala (mandala-lookup: a token's unspent value outputs, its authority outputs, one output by outpoint), on the overlay engine (shruggr/skein-overlay, required: chain/1). Topics are served once activated: the owner's mandala.tokens.activate {tokenId} writes the token list under <app>/mandala and subscribes the topic's gossip; deactivate undoes it. The libp2p prefix row tm_ takes every activated topic's messages."
+}

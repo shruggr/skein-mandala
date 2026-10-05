@@ -1,0 +1,23 @@
+.{
+    .name = .skein_mandala,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0x443bbc82525b39fc,
+    .dependencies = .{
+        // The topic and lookup contracts; the SDK (chain, app, sk, cbor) comes through it.
+        .skein_overlay = .{
+            .url = "https://github.com/shruggr/skein-overlay/archive/refs/tags/v0.4.1.tar.gz",
+            .hash = "skein_overlay-0.4.1-IMuNgQQwFACBu6t957BSRhG8Kt1flQTO45dJ1ImaDY1j",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "test.zig",
+        "bin",
+        "etc",
+        "docs",
+        "README.md",
+    },
+}
