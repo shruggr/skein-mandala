@@ -3,7 +3,7 @@
 // after its register (from the discovery lookup, or the wallet's copy).
 import { describe, expect, it } from "vitest";
 import type { WalletInterface } from "@bsv/sdk";
-import { appBaseOf, submitBeef, submitDeployToTopic, tokenOfTopic, type Fetch } from "../src/overlay";
+import { appBaseOf, authFetchOf, submitBeef, submitDeployToTopic, tokenOfTopic, type Fetch } from "../src/overlay";
 import { whereOf } from "../src/where";
 
 const txid = "ec".repeat(32);
@@ -40,6 +40,18 @@ describe("the deploy page's submit", () => {
     await expect(submitBeef(base, beef, ["tm_mandala"], bad)).rejects.toThrow(/HTTP 400/);
     const noId: Fetch = async () => new Response("{}", { status: 200 });
     await expect(submitBeef(base, beef, ["tm_mandala"], noId)).rejects.toThrow(/without an id/);
+  });
+});
+
+describe("signed: the POSTs go through the wallet's BRC-104 client", () => {
+  it("authFetchOf hands the request to the box's AuthFetch", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const box = { af: { fetch: async (u: string, i?: RequestInit) => { calls.push([u, i]); return new Response(JSON.stringify({ id: "s1" }), { status: 200 }); } } };
+    const f = authFetchOf(box as never);
+    expect(await submitBeef(base, beef, ["tm_mandala"], f)).toBe("s1");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe(`${base}/submit`);
+    expect(calls[0]![1]!.method).toBe("POST");
   });
 });
 

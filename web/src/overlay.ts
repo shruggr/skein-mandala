@@ -1,6 +1,10 @@
 /**
- * The overlay the pages are served from, over its open HTTP routes
- * (skein-overlay docs/OVERLAY.md "Submitting" and the routes table):
+ * The overlay the pages are served from, over its HTTP routes
+ * (skein-overlay docs/OVERLAY.md "Submitting" and the routes table). A skein
+ * takes no unsigned HTTP but GET/HEAD: a POST without a BRC-104 session is
+ * 401. Every POST here goes through the connected wallet's BRC-104 client
+ * (`signedFetch`, skein's `RawBox` AuthFetch); the `Fetch` parameter is there
+ * for tests.
  *
  * - `POST <app base>/submit`: the BEEF as the body, `X-Topics` a comma list;
  *   `200 {id}` is delivery only (the request record's CID). The verdict goes
@@ -13,6 +17,7 @@
  * still lands (and is admitted by no one).
  */
 import type { WalletInterface } from "@bsv/sdk";
+import { RawBox } from "skein/src/client/raw.ts";
 import { DISCOVERY } from "./tokens/list";
 
 export { DISCOVERY };
@@ -21,13 +26,27 @@ export const DEPLOYS_LOOKUP = "ls_mandala_deploys";
 
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * The connected wallet's BRC-104 client to the instance at `base` (the
+ * instance's place, `where.base`, not the app's): skein's `RawBox` AuthFetch,
+ * which shakes hands under a `/@<handle>` prefix too.
+ */
+export function signedFetch(wallet: WalletInterface, base: string): Fetch {
+  return authFetchOf(new RawBox(wallet, base));
+}
+
+/** A `RawBox`'s AuthFetch as a `Fetch` (the tokens page reuses its instance's). */
+export function authFetchOf(box: RawBox): Fetch {
+  return (url, init) => box.af.fetch(url, init as Parameters<RawBox["af"]["fetch"]>[1]);
+}
+
 /** The app's routes' base: `<base>/<app>`. */
 export function appBaseOf(w: { base: string; app: string }): string {
   return `${w.base}/${w.app}`;
 }
 
 /** Submit a BEEF under topics; the delivery id. */
-export async function submitBeef(appBase: string, beef: ArrayLike<number>, topics: string[], f: Fetch = fetch): Promise<string> {
+export async function submitBeef(appBase: string, beef: ArrayLike<number>, topics: string[], f: Fetch): Promise<string> {
   const r = await f(`${appBase}/submit`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream", "x-topics": topics.join(",") },
@@ -50,7 +69,7 @@ export function tokenOfTopic(topic: string): { tokenId: string; txid: string; vo
 }
 
 /** The deploy's BEEF from the discovery lookup; undefined when it has none. */
-export async function lookupDeployBeef(appBase: string, tokenId: string, f: Fetch = fetch): Promise<Uint8Array | undefined> {
+export async function lookupDeployBeef(appBase: string, tokenId: string, f: Fetch): Promise<Uint8Array | undefined> {
   const r = await f(`${appBase}/lookup`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -84,7 +103,7 @@ export type Submitted = { id: string; via: "lookup" | "wallet"; topics: string[]
  * (a token deployed before the deploy page submitted to discovery), the
  * wallet's copy, submitted under both the discovery topic and the token's.
  */
-export async function submitDeployToTopic(appBase: string, topic: string, wallet: WalletInterface | undefined, f: Fetch = fetch): Promise<Submitted> {
+export async function submitDeployToTopic(appBase: string, topic: string, wallet: WalletInterface | undefined, f: Fetch): Promise<Submitted> {
   const { tokenId, txid, vout } = tokenOfTopic(topic);
   const found = await lookupDeployBeef(appBase, tokenId, f);
   if (found) {

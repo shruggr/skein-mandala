@@ -5,14 +5,15 @@
  * `deregister` messages to the app's box `<app>/register` (skein-overlay 0.7.7+).
  * After a token's topic is registered, the page submits the token's deploy
  * under it (src/overlay.ts `submitDeployToTopic`), so the topic admits its own
- * deploy; "Submit deploy" does the same on demand.
+ * deploy; "Submit deploy" does the same on demand. The lookup and the submit
+ * are POSTs, so they go signed, through the instance's BRC-104 client.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@1sat/react";
 import { mount } from "../shell";
 import { whereOf } from "../where";
 import { Instance } from "./instance";
-import { appBaseOf, submitDeployToTopic } from "../overlay";
+import { appBaseOf, authFetchOf, submitDeployToTopic } from "../overlay";
 import { DISCOVERY, answerOf, deregister, discovery, register, topicsOf, type Call } from "./list";
 
 const where = whereOf(location.href);
@@ -35,9 +36,9 @@ function TokensPage() {
 
   /** The token's deploy submitted under its topic: from the discovery lookup, or the wallet's copy. */
   async function submitDeploy(t: string, prefix = ""): Promise<{ ok: boolean; text: string }> {
-    if (!where) return { ok: false, text: "no app" };
+    if (!where || !inst) return { ok: false, text: where ? "no wallet connected" : "no app" };
     try {
-      const r = await submitDeployToTopic(appBaseOf(where), t, wallet ?? undefined);
+      const r = await submitDeployToTopic(appBaseOf(where), t, wallet ?? undefined, authFetchOf(inst.box));
       const from = r.via === "lookup" ? "from the discovery lookup" : "from your wallet (the discovery lookup had none)";
       return { ok: true, text: `${prefix}deploy submitted ${from} under ${r.topics.join(", ")}: delivery ${r.id}. The topic has it once admitted.` };
     } catch (e) { return { ok: false, text: `${prefix}deploy not submitted: ${(e as Error).message}` }; }
