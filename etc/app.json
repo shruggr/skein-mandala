@@ -1,7 +1,7 @@
 {
   "kind": "app",
   "name": "mandala",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "programs": {
     "overlay": "bin/overlay.wasm",
     "mandala-topic": "bin/mandala-topic.wasm",
@@ -21,8 +21,8 @@
     {"transport": "http", "address": "/listLookupServiceProviders", "sender": "*", "program": "overlay", "fn": "listLookupServiceProviders"},
     {"transport": "http", "address": "/getDocumentationForTopicManager", "sender": "*", "program": "overlay", "fn": "topicDocumentation"},
     {"transport": "http", "address": "/getDocumentationForLookupServiceProvider", "sender": "*", "program": "overlay", "fn": "lookupDocumentation"},
-    {"address": "overlay", "sender": "$owner", "program": "overlay"},
+    {"address": "register", "sender": "$owner", "program": "overlay"},
     {"address": "submit", "sender": "*", "program": "overlay", "filter": "beef"}
   ],
-  "description": "Mandala tokens (BRC-162; docs/MANDALA.md): one overlay topic per token, tm_<txid>, judged by the token rules alone (mandala-topic), the discovery topic tm_mandala_deploys (every token's deploy output), the lookup service ls_mandala (mandala-lookup: a token's unspent value outputs, its authority outputs, one output by outpoint) and ls_mandala_deploys (a token id's deploy output; a token id is <txid>, <txid>_<vout> or <txid>.<vout>), on the overlay engine (shruggr/skein-overlay 0.7.6, required: chain/1). The manifest declares no topics: the owner registers each topic it runs with the engine, a message in the app's box overlay (<app>/overlay once installed) {fn: \"register\", args: {topic, program: \"mandala-topic\"}} (tm_<txid>, tm_<txid>_<vout> or tm_mandala_deploys), and drops it with {fn: \"deregister\", args: {topic}}; the registered set is the head <app>/topics. Both lookups listen to every topic the overlay serves."
+  "description": "Mandala tokens (BRC-162; docs/MANDALA.md): one overlay topic per token, tm_<txid>, judged by the token rules alone (mandala-topic), the discovery topic tm_mandala_deploys (every token's deploy output), the lookup service ls_mandala (mandala-lookup: a token's unspent value outputs, its authority outputs, one output by outpoint) and ls_mandala_deploys (a token id's deploy output; a token id is <txid>, <txid>_<vout> or <txid>.<vout>), on the overlay engine (shruggr/skein-overlay 0.7.7, required: chain/1). The manifest declares no topics: the owner registers each topic it runs with the engine, a message in the app's box register (<app>/register once installed) {fn: \"register\", args: {topic, program: \"mandala-topic\"}} (tm_<txid>, tm_<txid>_<vout> or tm_mandala_deploys), and drops it with {fn: \"deregister\", args: {topic}}; the registered set is the head <app>/topics. Both lookups listen to every topic the overlay serves."
 }

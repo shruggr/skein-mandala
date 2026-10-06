@@ -13,7 +13,7 @@ app; one topic per token; the protocol first; governance later, per token.
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala_deploys`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.6: serves the topics, keeps the registered set (`register` / `deregister`) |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.7: serves the topics, keeps the registered set (`register` / `deregister`) |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -148,16 +148,16 @@ decimals, symbol, icon, ...).
 ## Registering a topic
 
 The overlay serves only the topics the owner registered (#120 item 2; the
-call is the engine's, skein-overlay 0.6.0 (the owner's box `<app>/overlay`
-since 0.6.2), docs/OVERLAY.md "Register a topic"). The manifest declares no topics; there are no topic prefixes
+call is the engine's, skein-overlay 0.6.0 (the owner's box `<app>/register`
+since 0.7.7, `<app>/overlay` from 0.6.2), docs/OVERLAY.md "Register a topic"). The manifest declares no topics; there are no topic prefixes
 anywhere, in the configuration or in the rows.
 
 1. The owner sends `{fn: "register", args: {topic, program:
-   "mandala-topic"}}` to the app's box `<app>/overlay`. The topic is
+   "mandala-topic"}}` to the app's box `<app>/register`. The topic is
    `tm_<txid>`, `tm_<txid>_<vout>` or `tm_mandala_deploys`; it follows from
    how the token was deployed (the deploy page shows it). The row
-   `{address: "overlay", sender: "$owner", program: "overlay"}` (relative;
-   the install resolves it to `<app>/overlay`, skein#128) takes it to the
+   `{address: "register", sender: "$owner", program: "overlay"}` (relative;
+   the install resolves it to `<app>/register`, skein#128) takes it to the
    engine.
 2. The engine adds `{topic, program}` to its registered set, the head
    `<app>/topics` (`{kind: "overlay-topics", topics: [{topic, program}, …]}`,
@@ -190,8 +190,8 @@ not remove what the topic admitted or the lookup's index of it.
 - `config.overlay`: no `topics`; `lookups` `ls_mandala` and
   `ls_mandala_deploys`, each `{"program": "mandala-lookup"}` with no
   `topics` list;
-- the rows: `{"address": "overlay", "sender": "$owner", "program":
-  "overlay"}` (the owner's `register` / `deregister`, box `<app>/overlay`),
+- the rows: `{"address": "register", "sender": "$owner", "program":
+  "overlay"}` (the owner's `register` / `deregister`, box `<app>/register`),
   `{"address": "submit", "sender": "*", "program": "overlay", "filter":
   "beef"}` (the submission box `<app>/submit`: submissions by message and
   from `POST /submit`, skein-overlay 0.7.6; no `""` row) and the four listing and documentation
