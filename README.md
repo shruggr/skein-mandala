@@ -4,7 +4,7 @@ The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
 library they are built on, as a Zig package, and two pages an app that
-carries the components serves. Version **0.7.0**.
+carries the components serves. Version **0.7.1**.
 
 ## What it is
 
@@ -59,10 +59,12 @@ Exported Zig modules:
 (docs/MANDALA.md "Registering a topic"), taken in the owner's box
 `<app>/register` (0.7.7; `<app>/overlay` from 0.6.2), and whose submissions are messages into the
 submission box `<app>/submit`, by message and from `POST /submit` (0.7.6;
-before, the app's own box `<app>`). `bin/overlay.wasm` here is the v0.8.0
+before, the app's own box `<app>`). `bin/overlay.wasm` here is the v0.9.0
 build, whose `register` takes `seed` (the tokens page's register seeds a
-token's topic with its deploy, 0.7.8) and whose listings and documentation
-are reads (0.8.0, shruggr/skein#135).
+token's topic with its deploy, 0.7.8), whose listings and documentation
+are reads (0.8.0, shruggr/skein#135), and whose `config.overlay.market` /
+`config.overlay.validator` make a skein a market and/or a validator (0.9.0,
+shruggr/skein#120).
 
 **On its own** (`etc/app.json`, the reference manifest; the chain app first,
 which the overlay requires):
@@ -130,7 +132,7 @@ An app that serves Mandala tokens with its own programs beside them (an
 AMM) carries these in its tree and manifest:
 
 1. **The programs.** `bin/overlay.wasm` (the engine, skein-overlay
-   0.8.0), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
+   0.9.0), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
    this repo, under the roles `overlay`, `mandala-topic`, `mandala-lookup`.
 2. **`config.overlay`**, with no topics:
 
@@ -150,6 +152,24 @@ AMM) carries these in its tree and manifest:
    topics in `config.overlay.topics` (an overlay with fixed topics, e.g.
    OpNS's one global topic); Mandala's are dynamic, so it declares none.
    Gossip is on for every topic unless `gossip` turns one off.
+
+   Two settings, each optional, make the skein a market and/or a
+   validator (skein-overlay 0.9.0; David, 2026-10-06, shruggr/skein#120:
+   registering a token's topic is the one act that drives both):
+
+   ```json
+   "overlay": {"market": {"window": 40000}, "validator": {"every": 30000}}
+   ```
+
+   - `market: {window: <ms>}`: each `register` also declares liveness on
+     `<topic>-live` with that window — the runtime keeps the beats newer
+     than it, served at `GET /<app>/.live/<topic>-live`.
+   - `validator: {every: <ms>}`: each `register` also declares a beacon on
+     `<topic>-live`, a signed beat every `every` ms with no body; a
+     validator program the app carries signs for any registered topic
+     when it is set.
+
+   `deregister` reverses both. Each is an integer from 1 000 ms to a day.
 3. **The rows** (`dispatch[]`: messages; an http row takes a signed request):
    - `{"address": "register", "sender": "$owner", "program": "overlay"}`:
      the owner's message reaches the engine's `register` / `deregister` (the
@@ -192,7 +212,7 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.7.0.tar.gz",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.7.1.tar.gz",
         .hash = "<zig fetch --save prints it>",
     },
 },
@@ -277,7 +297,7 @@ zig build bin      # the same, into bin/ (committed)
 zig build test     # the parsers, the rules, the topic, the lookup, natively
 ```
 
-`bin/overlay.wasm` is copied from skein-overlay v0.8.0's build (`zig build
+`bin/overlay.wasm` is copied from skein-overlay v0.9.0's build (`zig build
 bin` there; the same bytes as its committed `bin/overlay.wasm`), not built
 here. With a local skein-overlay
 checkout: `zig build --fork=../skein-overlay`.
@@ -295,9 +315,9 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app, its programs and package | 0.7.0 (tag `v0.7.0`) |
+| this app, its programs and package | 0.7.1 (tag `v0.7.1`) |
 | the pages | `@1sat/actions` 0.0.233, `@1sat/react` 0.0.102, `@1sat/connect` 0.0.104, `@1sat/templates` 0.0.43, `@bsv/sdk` 2.8.6 (`web/package.json`, exact); skein's client at `web/lib/SKEIN_REV` |
-| skein-overlay | v0.8.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
+| skein-overlay | v0.9.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.7.1, through skein-overlay (modules `chain`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |
 
