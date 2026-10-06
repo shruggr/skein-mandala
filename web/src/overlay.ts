@@ -104,15 +104,26 @@ export type Submitted = { id: string; via: "lookup" | "wallet"; topics: string[]
  * wallet's copy, submitted under both the discovery topic and the token's.
  */
 export async function submitDeployToTopic(appBase: string, topic: string, wallet: WalletInterface | undefined, f: Fetch): Promise<Submitted> {
-  const { tokenId, txid, vout } = tokenOfTopic(topic);
+  const { tokenId } = tokenOfTopic(topic);
   const found = await lookupDeployBeef(appBase, tokenId, f);
   if (found) {
     const topics = [topic];
     return { id: await submitBeef(appBase, found, topics, f), via: "lookup", topics };
   }
-  if (!wallet) throw new Error(`the discovery lookup has no deploy for ${tokenId}, and no wallet is connected to give it`);
+  return submitWalletDeploy(appBase, topic, wallet, f, `the discovery lookup has no deploy for ${tokenId}`);
+}
+
+/**
+ * The wallet's copy of a token's deploy submitted under the discovery topic
+ * and the token's: for a deploy the overlay never held (a register's seeding
+ * answered it `missing`, skein-overlay 0.7.8). `why` begins the error when the
+ * wallet cannot give it.
+ */
+export async function submitWalletDeploy(appBase: string, topic: string, wallet: WalletInterface | undefined, f: Fetch, why = "the overlay does not hold the deploy"): Promise<Submitted> {
+  const { txid, vout } = tokenOfTopic(topic);
+  if (!wallet) throw new Error(`${why}, and no wallet is connected to give it`);
   const beef = await walletDeployBeef(wallet, txid, vout);
-  if (!beef) throw new Error(`the discovery lookup has no deploy for ${tokenId}, and this wallet does not hold it (basket mandala ${txid} ${vout})`);
+  if (!beef) throw new Error(`${why}, and this wallet does not hold it (basket mandala ${txid} ${vout})`);
   const topics = [DISCOVERY, topic];
   return { id: await submitBeef(appBase, beef, topics, f), via: "wallet", topics };
 }

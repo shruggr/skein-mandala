@@ -5,11 +5,14 @@
  *
  * The set is the engine's head `<app>/topics`, `{kind: "overlay-topics",
  * topics: [{topic, program}]}`. A message to the app's box `<app>/register` (skein-overlay 0.7.7): `{fn:
- * "register", args: {topic, program: "mandala-topic"}}` or `{fn:
+ * "register", args: {topic, program: "mandala-topic", seed?}}` or `{fn:
  * "deregister", args: {topic}}`, the topic `tm_<txid>`, `tm_<txid>_<vout>`
- * or `tm_mandala`. The step's answer is its result record (its CID
- * on stdout): `{kind: "overlay-result", op, topic, active, changed}` or
- * `{kind: "overlay-result", op, error}` for a refusal.
+ * or `tm_mandala`. A token's register seeds its topic with its deploy
+ * (skein-overlay 0.7.8): `seed: [<the deploy txid>]`, judged from what the
+ * instance's chain state holds. The step's answer is its result record (its
+ * CID on stdout): `{kind: "overlay-result", op, topic, active, changed,
+ * seeded?, missing?, untaken?}` or `{kind: "overlay-result", op, error}` for a
+ * refusal.
  */
 
 export const DISCOVERY = "tm_mandala";
@@ -17,7 +20,7 @@ export const DISCOVERY = "tm_mandala";
 export const PROGRAM = "mandala-topic";
 
 export type Call =
-  | { fn: "register"; args: { topic: string; program: string } }
+  | { fn: "register"; args: { topic: string; program: string; seed?: string[] } }
   | { fn: "deregister"; args: { topic: string } };
 
 /**
@@ -33,9 +36,15 @@ export function tokenTopicOf(text: string): string {
   return t;
 }
 
-/** Register a token's topic, judged by mandala-topic. */
+/** The deploy txid a token's topic names: `tm_<txid>` / `tm_<txid>_<vout>` → `<txid>`. */
+export function deployTxidOf(topic: string): string {
+  return tokenTopicOf(topic).slice(3, 67);
+}
+
+/** Register a token's topic, judged by mandala-topic, seeded with its deploy (skein-overlay 0.7.8). */
 export function register(topic: string): Call {
-  return { fn: "register", args: { topic: tokenTopicOf(topic), program: PROGRAM } };
+  const t = tokenTopicOf(topic);
+  return { fn: "register", args: { topic: t, program: PROGRAM, seed: [deployTxidOf(t)] } };
 }
 
 /** Deregister a topic. */
@@ -69,12 +78,29 @@ export function topicsOf(record: unknown): string[] {
   return registeredOf(record).filter((e) => e.program === PROGRAM).map((e) => e.topic);
 }
 
-export type Answer = { ok: true; topic: string; active: boolean } | { ok: false; message: string };
+/**
+ * A register's seeding (skein-overlay 0.7.8): `seeded` the seeds the topic
+ * holds now, `missing` the seeds the instance's chain state does not hold,
+ * `untaken` the held seeds the topic took nothing of.
+ */
+export interface Seeding {
+  seeded: string[];
+  missing: string[];
+  untaken: string[];
+}
+
+export type Answer = { ok: true; topic: string; active: boolean; seeding?: Seeding } | { ok: false; message: string };
+
+const txids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 /** The step's result record read as the outcome of the call. */
 export function answerOf(v: unknown): Answer {
-  const r = (v ?? {}) as { kind?: unknown; topic?: unknown; active?: unknown; error?: unknown };
+  const r = (v ?? {}) as { kind?: unknown; topic?: unknown; active?: unknown; error?: unknown; seeded?: unknown; missing?: unknown; untaken?: unknown };
   if (r.kind === "overlay-result" && r.error !== undefined) return { ok: false, message: String(r.error) };
-  if (r.kind === "overlay-result" && typeof r.topic === "string" && typeof r.active === "boolean") return { ok: true, topic: r.topic, active: r.active };
+  if (r.kind === "overlay-result" && typeof r.topic === "string" && typeof r.active === "boolean") {
+    const a: Answer = { ok: true, topic: r.topic, active: r.active };
+    if (r.seeded !== undefined || r.missing !== undefined) a.seeding = { seeded: txids(r.seeded), missing: txids(r.missing), untaken: txids(r.untaken) };
+    return a;
+  }
   return { ok: false, message: `an answer not in the overlay-result shape: ${JSON.stringify(v)}` };
 }

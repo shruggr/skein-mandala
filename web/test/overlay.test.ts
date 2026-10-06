@@ -3,7 +3,7 @@
 // after its register (from the discovery lookup, or the wallet's copy).
 import { describe, expect, it } from "vitest";
 import type { WalletInterface } from "@bsv/sdk";
-import { appBaseOf, authFetchOf, submitBeef, submitDeployToTopic, tokenOfTopic, type Fetch } from "../src/overlay";
+import { appBaseOf, authFetchOf, submitBeef, submitDeployToTopic, submitWalletDeploy, tokenOfTopic, type Fetch } from "../src/overlay";
 import { whereOf } from "../src/where";
 
 const txid = "ec".repeat(32);
@@ -93,5 +93,14 @@ describe("a token topic's own deploy", () => {
     await expect(submitDeployToTopic(base, `tm_${txid}`, wallet, f)).rejects.toThrow(/does not hold it/);
     await expect(submitDeployToTopic(base, `tm_${txid}`, undefined, f)).rejects.toThrow(/no wallet/);
     expect(sent.every((s) => s.url.endsWith("/lookup"))).toBe(true);
+  });
+  it("a register's seeding answered the deploy missing (skein-overlay 0.7.8): the wallet's copy, no lookup, under tm_mandala and tm_<txid>_<vout>", async () => {
+    const { f, sent } = stub([]);
+    const wallet = {
+      listOutputs: async () => ({ totalOutputs: 1, outputs: [{ outpoint: `${txid}.2`, satoshis: 1, spendable: true }], BEEF: beef }),
+    } as unknown as WalletInterface;
+    expect(await submitWalletDeploy(base, `tm_${txid}_2`, wallet, f)).toEqual({ id: "a1b2", via: "wallet", topics: ["tm_mandala", `tm_${txid}_2`] });
+    expect(sent.map((x) => x.url)).toEqual([`${base}/submit`]);
+    await expect(submitWalletDeploy(base, `tm_${txid}`, undefined, f, "missing")).rejects.toThrow(/^missing, and no wallet/);
   });
 });

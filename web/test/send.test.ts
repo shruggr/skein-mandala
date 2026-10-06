@@ -29,6 +29,6 @@ describe("the owner's message", () => {
     const m = (dagCbor.decode(sent[0]!.init.body) as { message: { recipient: Uint8Array; messageBox: string; body: Uint8Array } }).message;
     expect(Buffer.from(m.recipient).toString("hex")).toBe(identity);
     expect(m.messageBox).toBe("amm/register");
-    expect(dagCbor.decode(m.body)).toEqual({ fn: "register", args: { topic: `tm_${"ef".repeat(32)}`, program: "mandala-topic" } });
+    expect(dagCbor.decode(m.body)).toEqual({ fn: "register", args: { topic: `tm_${"ef".repeat(32)}`, program: "mandala-topic", seed: ["ef".repeat(32)] } });
   });
 });

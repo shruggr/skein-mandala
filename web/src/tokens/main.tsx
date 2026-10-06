@@ -3,18 +3,22 @@
  * engine's registered topics (the head `<app>/topics`, through the explorer,
  * the owner's read), and changes them by the owner's `register` /
  * `deregister` messages to the app's box `<app>/register` (skein-overlay 0.7.7+).
- * After a token's topic is registered, the page submits the token's deploy
- * under it (src/overlay.ts `submitDeployToTopic`), so the topic admits its own
- * deploy; "Submit deploy" does the same on demand. The lookup and the submit
- * are POSTs, so they go signed, through the instance's BRC-104 client.
+ * A token's register seeds its topic with the token's deploy (skein-overlay
+ * 0.7.8, `seed: [<deploy txid>]`): the engine judges it from what the
+ * instance's chain state holds, and the answer says `seeded` or `missing`.
+ * Missing (the overlay never held the deploy), the page submits the wallet's
+ * copy (src/overlay.ts `submitWalletDeploy`). "Submit deploy to this
+ * overlay" submits the deploy on demand (`submitDeployToTopic`: the discovery
+ * lookup's, else the wallet's). The lookup and the submit are POSTs, so they
+ * go signed, through the instance's BRC-104 client.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@1sat/react";
 import { mount } from "../shell";
 import { whereOf } from "../where";
 import { Instance } from "./instance";
-import { appBaseOf, authFetchOf, submitDeployToTopic } from "../overlay";
-import { DISCOVERY, answerOf, deregister, discovery, register, topicsOf, type Call } from "./list";
+import { appBaseOf, authFetchOf, submitDeployToTopic, submitWalletDeploy, type Submitted } from "../overlay";
+import { DISCOVERY, answerOf, deployTxidOf, deregister, discovery, register, topicsOf, type Call, type Seeding } from "./list";
 
 const where = whereOf(location.href);
 
@@ -34,14 +38,28 @@ function TokensPage() {
   }, [inst]);
   useEffect(() => { void load(); }, [load]);
 
-  /** The token's deploy submitted under its topic: from the discovery lookup, or the wallet's copy. */
-  async function submitDeploy(t: string, prefix = ""): Promise<{ ok: boolean; text: string }> {
+  /** The token's deploy submitted under its topic: from the discovery lookup, or the wallet's copy; `walletOnly` the wallet's. */
+  async function submitDeploy(t: string, prefix = "", walletOnly = false): Promise<{ ok: boolean; text: string }> {
     if (!where || !inst) return { ok: false, text: where ? "no wallet connected" : "no app" };
     try {
-      const r = await submitDeployToTopic(appBaseOf(where), t, wallet ?? undefined, authFetchOf(inst.box));
-      const from = r.via === "lookup" ? "from the discovery lookup" : "from your wallet (the discovery lookup had none)";
+      const f = authFetchOf(inst.box);
+      const r: Submitted = walletOnly
+        ? await submitWalletDeploy(appBaseOf(where), t, wallet ?? undefined, f, "the overlay's chain state does not hold the deploy")
+        : await submitDeployToTopic(appBaseOf(where), t, wallet ?? undefined, f);
+      const from = r.via === "lookup" ? "from the discovery lookup" : walletOnly ? "from your wallet" : "from your wallet (the discovery lookup had none)";
       return { ok: true, text: `${prefix}deploy submitted ${from} under ${r.topics.join(", ")}: delivery ${r.id}. The topic has it once admitted.` };
     } catch (e) { return { ok: false, text: `${prefix}deploy not submitted: ${(e as Error).message}` }; }
+  }
+
+  /** What a token's register seeded (skein-overlay 0.7.8): the deploy seeded, or missing (→ the wallet's copy), or held but not taken. */
+  async function afterSeeding(topic: string, s: Seeding | undefined): Promise<{ ok: boolean; text: string }> {
+    const deploy = deployTxidOf(topic);
+    const seeded = `seeded: ${s?.seeded.length ? s.seeded.join(", ") : "none"}; missing: ${s?.missing.length ? s.missing.join(", ") : "none"}`;
+    if (s?.seeded.includes(deploy)) return { ok: true, text: `${topic}: registered; the deploy was seeded from the overlay's chain state (${seeded}).` };
+    if (s?.untaken.includes(deploy)) return { ok: false, text: `${topic}: registered; the overlay holds the deploy, but the topic took nothing of it (${seeded}).` };
+    // Missing (or an engine before 0.7.8, which answers no seeding): the wallet's copy.
+    setBusy(`${topic}:submit`);
+    return submitDeploy(topic, `${topic}: registered (${s ? seeded : "no seeding in the answer"}); `, true);
   }
 
   async function run(label: string, c: Call) {
@@ -50,8 +68,7 @@ function TokensPage() {
     try {
       const a = answerOf(await inst.call(`${where.app}/register`, c));
       if (a.ok && a.active && c.fn === "register" && a.topic !== DISCOVERY) {
-        setBusy(`${label}:submit`);
-        setNote(await submitDeploy(a.topic, `${a.topic}: registered; `));
+        setNote(await afterSeeding(a.topic, a.seeding));
       } else {
         setNote(a.ok ? { ok: true, text: `${a.topic}: ${a.active ? "registered" : "not registered"}` } : { ok: false, text: a.message });
       }

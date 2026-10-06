@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { DISCOVERY, answerOf, deregister, discovery, register, tokenTopicOf, topicsOf } from "../src/tokens/list";
+import { DISCOVERY, answerOf, deployTxidOf, deregister, discovery, register, tokenTopicOf, topicsOf } from "../src/tokens/list";
 
 const txid = "cd".repeat(32);
 
 describe("the owner's calls: the engine's register / deregister", () => {
-  it("register a token's topic, judged by mandala-topic", () => {
-    expect(register(` tm_${txid} `)).toEqual({ fn: "register", args: { topic: `tm_${txid}`, program: "mandala-topic" } });
-    expect(register(`tm_${txid}_2`)).toEqual({ fn: "register", args: { topic: `tm_${txid}_2`, program: "mandala-topic" } });
+  it("register a token's topic, judged by mandala-topic, seeded with its deploy (skein-overlay 0.7.8)", () => {
+    expect(register(` tm_${txid} `)).toEqual({ fn: "register", args: { topic: `tm_${txid}`, program: "mandala-topic", seed: [txid] } });
+    expect(register(`tm_${txid}_2`)).toEqual({ fn: "register", args: { topic: `tm_${txid}_2`, program: "mandala-topic", seed: [txid] } });
+    expect(deployTxidOf(`tm_${txid}_2`)).toBe(txid);
   });
   it("a token id is not a topic; tm_<txid>_0 is no topic", () => {
     for (const bad of [txid, `${txid}_0`, `${txid}.0`, `tm_${txid}_0`, `tm_${txid}_01`, `tm_${txid.toUpperCase()}`, `tm_${txid}_4294967296`, DISCOVERY]) {
@@ -35,5 +36,13 @@ describe("the registered set and the answers", () => {
     expect(answerOf({ kind: "overlay-result", op: "register", topic: `tm_${txid}`, active: true, changed: true })).toEqual({ ok: true, topic: `tm_${txid}`, active: true });
     expect(answerOf({ kind: "overlay-result", op: "register", error: "registered with another program; deregister it first" })).toEqual({ ok: false, message: "registered with another program; deregister it first" });
     expect(answerOf({}).ok).toBe(false);
+  });
+  it("a register's seeding: seeded / missing (untaken when present)", () => {
+    expect(answerOf({ kind: "overlay-result", op: "register", topic: `tm_${txid}`, active: true, changed: true, seeded: [txid], missing: [] }))
+      .toEqual({ ok: true, topic: `tm_${txid}`, active: true, seeding: { seeded: [txid], missing: [], untaken: [] } });
+    expect(answerOf({ kind: "overlay-result", op: "register", topic: `tm_${txid}`, active: true, changed: false, seeded: [], missing: [txid] }))
+      .toEqual({ ok: true, topic: `tm_${txid}`, active: true, seeding: { seeded: [], missing: [txid], untaken: [] } });
+    expect(answerOf({ kind: "overlay-result", op: "register", topic: `tm_${txid}`, active: true, seeded: [], missing: [], untaken: [txid] }).ok && "seeding")
+      .toBe("seeding");
   });
 });

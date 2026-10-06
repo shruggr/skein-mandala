@@ -13,7 +13,7 @@ app; one topic per token; the protocol first; governance later, per token.
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.7: serves the topics, keeps the registered set (`register` / `deregister`) |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.8: serves the topics, keeps the registered set (`register` / `deregister`) |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -166,10 +166,17 @@ anywhere, in the configuration or in the rows.
    `<topic>` (`submit`), `<topic>-admit` (`peerAdmit`) and `<topic>-proof`
    (`peerProof`), `program` the engine's role. The host subscribes them
    and routes their messages by these events (skein #119).
-4. The step's result record is `{kind: "overlay-result", op: "register",
-   topic, active: true, changed}`; the engine also answers `{fn, request,
-   replyTo, result: {topic, active}}` to a sender a message can reach.
-5. From the next step the engine serves the topic, judged by
+4. With `seed: [txid, …]` (skein-overlay 0.7.8; the tokens page sends
+   the deploy's txid), the engine then judges each seed the instance's
+   chain state holds under the new topic only, oldest first over its held
+   ancestry, and admits it from the state — a token's topic gets its own
+   deploy without a resubmission.
+5. The step's result record is `{kind: "overlay-result", op: "register",
+   topic, active: true, changed, seeded?, missing?}`; the engine also
+   answers `{fn, request, replyTo, result: {topic, active, seeded?,
+   missing?}}` to a sender a message can reach. A seed `missing` (the
+   overlay never held it) is submitted the usual way.
+6. From the next step the engine serves the topic, judged by
    `mandala-topic`: `/submit` with it in `X-Topics`, gossip on it, the
    listing, and both lookups (which list no `topics`, so they listen to
    every topic served).
