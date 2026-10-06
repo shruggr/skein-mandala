@@ -7,8 +7,10 @@
  * for tests.
  *
  * - `POST <app base>/submit`: the BEEF as the body, `X-Topics` a comma list;
- *   `200 {id}` is delivery only (the request record's CID). The verdict goes
- *   to the submitter's box; an anonymous page sees it by a lookup.
+ *   BRC-22 (skein-overlay 0.9.1): the request waits and answers the STEAK
+ *   `{<topic>: {outputsToAdmit, coinsToRetain, coinsRemoved}}`; 503 with
+ *   Retry-After when nothing is decided yet (the submission stands; a
+ *   resubmission polls it).
  * - `POST <app base>/lookup {service, query}` →
  *   `{type: "output-list", outputs: [{beef, outputIndex}]}`.
  *
@@ -45,7 +47,11 @@ export function appBaseOf(w: { base: string; app: string }): string {
   return `${w.base}/${w.app}`;
 }
 
-/** Submit a BEEF under topics; the delivery id. */
+/**
+ * Submit a BEEF under topics (BRC-22): the answer, in words — the topics that
+ * admitted outputs (from the STEAK), "taken by no topic", or, on a 503, "not
+ * decided yet". Any other status is an error.
+ */
 export async function submitBeef(appBase: string, beef: ArrayLike<number>, topics: string[], f: Fetch): Promise<string> {
   const r = await f(`${appBase}/submit`, {
     method: "POST",
@@ -53,11 +59,15 @@ export async function submitBeef(appBase: string, beef: ArrayLike<number>, topic
     body: Uint8Array.from(beef) as unknown as BodyInit,
   });
   const text = await r.text();
+  if (r.status === 503) return `not decided yet (resubmit after ${r.headers.get("retry-after") ?? "a while"} s)`;
   if (r.status !== 200) throw new Error(`submit: HTTP ${r.status} ${text.slice(0, 200)}`);
-  let id: unknown;
-  try { id = (JSON.parse(text) as { id?: unknown }).id; } catch { /* below */ }
-  if (typeof id !== "string") throw new Error(`submit: an answer without an id: ${text.slice(0, 200)}`);
-  return id;
+  let steak: unknown;
+  try { steak = JSON.parse(text); } catch { /* below */ }
+  if (!steak || typeof steak !== "object" || Array.isArray(steak)) throw new Error(`submit: not a STEAK: ${text.slice(0, 200)}`);
+  const took = Object.entries(steak as Record<string, { outputsToAdmit?: unknown }>)
+    .filter(([, e]) => Array.isArray(e?.outputsToAdmit) && e.outputsToAdmit.length > 0)
+    .map(([t, e]) => `${t} (outputs ${(e.outputsToAdmit as number[]).join(", ")})`);
+  return took.length ? `admitted under ${took.join("; ")}` : "taken by no topic";
 }
 
 /** The token a topic serves: `tm_<txid>` → `<txid>`, `tm_<txid>_<vout>` → `<txid>_<vout>`. */
@@ -95,7 +105,7 @@ export async function walletDeployBeef(wallet: WalletInterface, txid: string, vo
   return held && r.BEEF && r.BEEF.length > 0 ? r.BEEF : undefined;
 }
 
-export type Submitted = { id: string; via: "lookup" | "wallet"; topics: string[] };
+export type Submitted = { answer: string; via: "lookup" | "wallet"; topics: string[] };
 
 /**
  * Submit a token's deploy to its own topic: the deploy's BEEF from the
@@ -108,7 +118,7 @@ export async function submitDeployToTopic(appBase: string, topic: string, wallet
   const found = await lookupDeployBeef(appBase, tokenId, f);
   if (found) {
     const topics = [topic];
-    return { id: await submitBeef(appBase, found, topics, f), via: "lookup", topics };
+    return { answer: await submitBeef(appBase, found, topics, f), via: "lookup", topics };
   }
   return submitWalletDeploy(appBase, topic, wallet, f, `the discovery lookup has no deploy for ${tokenId}`);
 }
@@ -125,5 +135,5 @@ export async function submitWalletDeploy(appBase: string, topic: string, wallet:
   const beef = await walletDeployBeef(wallet, txid, vout);
   if (!beef) throw new Error(`${why}, and this wallet does not hold it (basket mandala ${txid} ${vout})`);
   const topics = [DISCOVERY, topic];
-  return { id: await submitBeef(appBase, beef, topics, f), via: "wallet", topics };
+  return { answer: await submitBeef(appBase, beef, topics, f), via: "wallet", topics };
 }

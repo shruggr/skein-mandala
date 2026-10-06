@@ -22,7 +22,7 @@ type Done = { txid: string; tx?: number[]; error?: string; submitted?: string; s
 
 const where = whereOf(location.href);
 
-/** The deploy submitted to this overlay under the discovery topic: the delivery id, or the error. */
+/** The deploy submitted to this overlay under the discovery topic: the answer (BRC-22's STEAK, in words), or the error. */
 async function submitDeploy(wallet: WalletInterface | null | undefined, tx: number[] | undefined): Promise<{ submitted?: string; submitErr?: string }> {
   if (!where) return { submitErr: "this page's URL names no app, so no overlay to submit to" };
   if (!tx) return { submitErr: "the wallet returned no transaction to submit" };
@@ -106,7 +106,7 @@ function DeployPage() {
             <p className="ok small">In your wallet: basket <code>mandala {done.txid} 0</code>.</p>
           )}
           {done.submitted ? (
-            <p className="ok small">Submitted to this overlay under <code>{DISCOVERY}</code>: delivery <code>{done.submitted}</code>. The discovery topic has the deploy once admitted (lookup <code>ls_mandala_deploys</code>). If this overlay does not serve <code>{DISCOVERY}</code>, the submit still lands and nothing admits it.</p>
+            <p className="ok small">Submitted to this overlay under <code>{DISCOVERY}</code>: {done.submitted}. The discovery topic has the deploy once admitted (lookup <code>ls_mandala_deploys</code>); if this overlay does not serve <code>{DISCOVERY}</code>, nothing admits it.</p>
           ) : done.submitErr ? (
             <p className="status bad">Not submitted to this overlay: {done.submitErr} <button type="button" disabled={busy} onClick={resubmit}>Submit again</button></p>
           ) : null}

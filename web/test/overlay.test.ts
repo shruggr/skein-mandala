@@ -12,12 +12,16 @@ const beef = [1, 1, 1, 1, 0xbe, 0xef];
 
 type Sent = { url: string; method?: string; headers: Record<string, string>; body: unknown };
 
+/** BRC-22's answer (skein-overlay 0.9.1): the STEAK, and the page's words for it. */
+const STEAK = { tm_mandala: { outputsToAdmit: [0], coinsToRetain: [], coinsRemoved: [] } };
+const ADMITTED = "admitted under tm_mandala (outputs 0)";
+
 function stub(lookupOutputs: unknown[]): { f: Fetch; sent: Sent[] } {
   const sent: Sent[] = [];
   const f: Fetch = async (url, init) => {
     sent.push({ url, method: init?.method, headers: init?.headers as Record<string, string>, body: init?.body });
     if (url.endsWith("/lookup")) return new Response(JSON.stringify({ type: "output-list", outputs: lookupOutputs }), { status: 200 });
-    if (url.endsWith("/submit")) return new Response(JSON.stringify({ id: "a1b2" }), { status: 200 });
+    if (url.endsWith("/submit")) return new Response(JSON.stringify(STEAK), { status: 200 });
     return new Response("no", { status: 404 });
   };
   return { f, sent };
@@ -27,7 +31,7 @@ describe("the deploy page's submit", () => {
   it("POST <base>/<app>/submit, the BEEF as the body, X-Topics the discovery topic only", async () => {
     const { f, sent } = stub([]);
     expect(base).toBe("https://mandala.skein.nexus/amm");
-    expect(await submitBeef(base, beef, ["tm_mandala"], f)).toBe("a1b2");
+    expect(await submitBeef(base, beef, ["tm_mandala"], f)).toBe(ADMITTED);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.url).toBe("https://mandala.skein.nexus/amm/submit");
     expect(sent[0]!.method).toBe("POST");
@@ -35,20 +39,22 @@ describe("the deploy page's submit", () => {
     expect(sent[0]!.headers["content-type"]).toBe("application/octet-stream");
     expect(Array.from(sent[0]!.body as Uint8Array)).toEqual(beef);
   });
-  it("a refusal or an answer without an id is an error", async () => {
+  it("a refusal or an answer that is not a STEAK is an error; a 503 is not decided yet", async () => {
     const bad: Fetch = async () => new Response('{"status":"error","message":"no X-Topics"}', { status: 400 });
     await expect(submitBeef(base, beef, ["tm_mandala"], bad)).rejects.toThrow(/HTTP 400/);
-    const noId: Fetch = async () => new Response("{}", { status: 200 });
-    await expect(submitBeef(base, beef, ["tm_mandala"], noId)).rejects.toThrow(/without an id/);
+    const notSteak: Fetch = async () => new Response("[]", { status: 200 });
+    await expect(submitBeef(base, beef, ["tm_mandala"], notSteak)).rejects.toThrow(/not a STEAK/);
+    const later: Fetch = async () => new Response('{"status":"error"}', { status: 503, headers: { "retry-after": "30" } });
+    expect(await submitBeef(base, beef, ["tm_mandala"], later)).toBe("not decided yet (resubmit after 30 s)");
   });
 });
 
 describe("signed: the POSTs go through the wallet's BRC-104 client", () => {
   it("authFetchOf hands the request to the box's AuthFetch", async () => {
     const calls: Array<[string, RequestInit | undefined]> = [];
-    const box = { af: { fetch: async (u: string, i?: RequestInit) => { calls.push([u, i]); return new Response(JSON.stringify({ id: "s1" }), { status: 200 }); } } };
+    const box = { af: { fetch: async (u: string, i?: RequestInit) => { calls.push([u, i]); return new Response(JSON.stringify({ tm_mandala: { outputsToAdmit: [], coinsToRetain: [], coinsRemoved: [] } }), { status: 200 }); } } };
     const f = authFetchOf(box as never);
-    expect(await submitBeef(base, beef, ["tm_mandala"], f)).toBe("s1");
+    expect(await submitBeef(base, beef, ["tm_mandala"], f)).toBe("taken by no topic");
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe(`${base}/submit`);
     expect(calls[0]![1]!.method).toBe("POST");
@@ -64,7 +70,7 @@ describe("a token topic's own deploy", () => {
   it("register → the discovery lookup → submit under tm_<txid> only", async () => {
     const { f, sent } = stub([{ beef, outputIndex: 0 }]);
     const r = await submitDeployToTopic(base, `tm_${txid}`, undefined, f);
-    expect(r).toEqual({ id: "a1b2", via: "lookup", topics: [`tm_${txid}`] });
+    expect(r).toEqual({ answer: ADMITTED, via: "lookup", topics: [`tm_${txid}`] });
     expect(sent.map((s) => s.url)).toEqual([`${base}/lookup`, `${base}/submit`]);
     expect(JSON.parse(sent[0]!.body as string)).toEqual({ service: "ls_mandala_deploys", query: { tokenId: txid } });
     expect(sent[1]!.headers["x-topics"]).toBe(`tm_${txid}`);
@@ -82,7 +88,7 @@ describe("a token topic's own deploy", () => {
       listOutputs: async (a: unknown) => { asked.push(a); return { totalOutputs: 1, outputs: [{ outpoint: `${txid}.0`, satoshis: 1, spendable: true }], BEEF: beef }; },
     } as unknown as WalletInterface;
     const r = await submitDeployToTopic(base, `tm_${txid}`, wallet, f);
-    expect(r).toEqual({ id: "a1b2", via: "wallet", topics: ["tm_mandala", `tm_${txid}`] });
+    expect(r).toEqual({ answer: ADMITTED, via: "wallet", topics: ["tm_mandala", `tm_${txid}`] });
     expect(asked).toEqual([{ basket: `mandala ${txid} 0`, include: "entire transactions", limit: 100 }]);
     expect(sent[1]!.headers["x-topics"]).toBe(`tm_mandala,tm_${txid}`);
     expect(Array.from(sent[1]!.body as Uint8Array)).toEqual(beef);
@@ -99,7 +105,7 @@ describe("a token topic's own deploy", () => {
     const wallet = {
       listOutputs: async () => ({ totalOutputs: 1, outputs: [{ outpoint: `${txid}.2`, satoshis: 1, spendable: true }], BEEF: beef }),
     } as unknown as WalletInterface;
-    expect(await submitWalletDeploy(base, `tm_${txid}_2`, wallet, f)).toEqual({ id: "a1b2", via: "wallet", topics: ["tm_mandala", `tm_${txid}_2`] });
+    expect(await submitWalletDeploy(base, `tm_${txid}_2`, wallet, f)).toEqual({ answer: ADMITTED, via: "wallet", topics: ["tm_mandala", `tm_${txid}_2`] });
     expect(sent.map((x) => x.url)).toEqual([`${base}/submit`]);
     await expect(submitWalletDeploy(base, `tm_${txid}`, undefined, f, "missing")).rejects.toThrow(/^missing, and no wallet/);
   });

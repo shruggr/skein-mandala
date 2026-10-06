@@ -47,7 +47,7 @@ function TokensPage() {
         ? await submitWalletDeploy(appBaseOf(where), t, wallet ?? undefined, f, "the overlay's chain state does not hold the deploy")
         : await submitDeployToTopic(appBaseOf(where), t, wallet ?? undefined, f);
       const from = r.via === "lookup" ? "from the discovery lookup" : walletOnly ? "from your wallet" : "from your wallet (the discovery lookup had none)";
-      return { ok: true, text: `${prefix}deploy submitted ${from} under ${r.topics.join(", ")}: delivery ${r.id}. The topic has it once admitted.` };
+      return { ok: true, text: `${prefix}deploy submitted ${from} under ${r.topics.join(", ")}: ${r.answer}.` };
     } catch (e) { return { ok: false, text: `${prefix}deploy not submitted: ${(e as Error).message}` }; }
   }
 
