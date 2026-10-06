@@ -73,7 +73,7 @@ function DeployPage() {
           <table><tbody>
             <tr><th>transaction</th><td><code>{done.txid}</code></td></tr>
             <tr><th>token id</th><td><code>{names.tokenId}</code></td></tr>
-            <tr><th>topic to activate</th><td><code>{names.topic}</code></td></tr>
+            <tr><th>topic to register</th><td><code>{names.topic}</code></td></tr>
           </tbody></table>
           {done.error ? (
             <p className="status bad">Broadcast, not filed in your wallet: {done.error} <button type="button" disabled={busy} onClick={refile}>File it again</button></p>

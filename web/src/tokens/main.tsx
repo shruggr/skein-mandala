@@ -2,7 +2,7 @@
  * The tokens this overlay serves: the owner's page. Reads the overlay
  * engine's registered topics (the head `<app>/topics`, through the explorer,
  * the owner's read), and changes them by the owner's `register` /
- * `deregister` messages to the app's box `<app>` (skein-overlay 0.6.0).
+ * `deregister` messages to the app's box `<app>/overlay` (skein-overlay 0.6.2+).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@1sat/react";
@@ -33,7 +33,7 @@ function TokensPage() {
     if (!inst || !where) return;
     setBusy(label); setNote(undefined);
     try {
-      const a = answerOf(await inst.call(where.app, c));
+      const a = answerOf(await inst.call(`${where.app}/overlay`, c));
       setNote(a.ok ? { ok: true, text: `${a.topic}: ${a.active ? "registered" : "not registered"}` } : { ok: false, text: a.message });
     } catch (e) { setNote({ ok: false, text: (e as Error).message }); }
     setBusy("");
@@ -49,7 +49,7 @@ function TokensPage() {
   return (
     <>
       <h1>Tokens on this overlay</h1>
-      <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is the owner's: a message from your wallet to the box <code>{where.app}</code> of <code>{where.base}</code>.</p>
+      <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is the owner's: a message from your wallet to the box <code>{where.app}/overlay</code> of <code>{where.base}</code>.</p>
       {status !== "connected" && <p className="mut">Connect the owner's wallet.</p>}
       {readErr && <p className="status bad">The list: {readErr}</p>}
       {inst && (

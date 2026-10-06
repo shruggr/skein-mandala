@@ -4,7 +4,7 @@
  * that change it, the answers. Pure; the page sends and reads.
  *
  * The set is the engine's head `<app>/topics`, `{kind: "overlay-topics",
- * topics: [{topic, program}]}`. A message to the app's box `<app>`: `{fn:
+ * topics: [{topic, program}]}`. A message to the app's box `<app>/overlay`: `{fn:
  * "register", args: {topic, program: "mandala-topic"}}` or `{fn:
  * "deregister", args: {topic}}`, the topic `tm_<txid>`, `tm_<txid>_<vout>`
  * or `tm_mandala_deploys`. The step's answer is its result record (its CID

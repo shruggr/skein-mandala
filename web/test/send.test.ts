@@ -21,14 +21,14 @@ describe("the owner's message", () => {
       sent.push({ url, init });
       return new Response(dagCbor.encode({ status: "success", id: "bafyreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy" }) as unknown as BodyInit, { status: 200 });
     };
-    const id = await inst.send("amm", register(`tm_${"ef".repeat(32)}`));
+    const id = await inst.send("amm/overlay", register(`tm_${"ef".repeat(32)}`));
     expect(id).toBe("bafyreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy");
     expect(sent).toHaveLength(1);
     expect(sent[0]!.url).toBe("http://127.0.0.1:8100/@alice/sendMessage");
     expect(sent[0]!.init.headers["content-type"]).toBe("application/cbor");
     const m = (dagCbor.decode(sent[0]!.init.body) as { message: { recipient: Uint8Array; messageBox: string; body: Uint8Array } }).message;
     expect(Buffer.from(m.recipient).toString("hex")).toBe(identity);
-    expect(m.messageBox).toBe("amm");
+    expect(m.messageBox).toBe("amm/overlay");
     expect(dagCbor.decode(m.body)).toEqual({ fn: "register", args: { topic: `tm_${"ef".repeat(32)}`, program: "mandala-topic" } });
   });
 });
