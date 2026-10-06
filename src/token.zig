@@ -49,7 +49,7 @@ pub fn originOf(a: std.mem.Allocator, txid: [32]u8, vout: u32, script: []const u
     };
 }
 
-/// The discovery topic's verdict (`tm_mandala_deploys`): every output that is a valid deploy of
+/// The discovery topic's verdict (`tm_mandala`): every output that is a valid deploy of
 /// any token, nothing else; the coins it spends retained (a registry keeps what it admitted).
 pub fn judgeDeploys(a: std.mem.Allocator, tx: bsv21.Tx, previous_coins: []const u32) !Verdict {
     var admit: std.ArrayList(u32) = .empty;

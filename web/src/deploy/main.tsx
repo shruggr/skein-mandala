@@ -2,16 +2,30 @@
  * Deploy a token: open to anyone, a helper over the user's own wallet.
  * @1sat/actions' `deployMandala` builds the BRC-162 deploy at output 0, the
  * wallet signs and broadcasts it and files it (basket and labels
- * `mandala <txid> 0`). Nothing is sent to the overlay.
+ * `mandala <txid> 0`). The page then submits the deploy to the overlay it is
+ * served from under the discovery topic only (`tm_mandala`): its own topic
+ * `tm_<txid>` did not exist before this transaction, so nobody serves it yet.
  */
 import { useState } from "react";
 import { useWallet } from "@1sat/react";
 import { createContext } from "@1sat-actions/types.js";
 import { deployMandala, fileMandalaDeploy } from "@1sat-actions/mandala/deploy.js";
 import { mount } from "../shell";
+import { whereOf } from "../where";
+import { DISCOVERY, appBaseOf, submitBeef } from "../overlay";
 import { deployInput, namesOf, type DeployForm } from "./payload";
 
-type Done = { txid: string; tx?: number[]; error?: string };
+type Done = { txid: string; tx?: number[]; error?: string; submitted?: string; submitErr?: string };
+
+const where = whereOf(location.href);
+
+/** The deploy submitted to this overlay under the discovery topic: the delivery id, or the error. */
+async function submitDeploy(tx: number[] | undefined): Promise<{ submitted?: string; submitErr?: string }> {
+  if (!where) return { submitErr: "this page's URL names no app, so no overlay to submit to" };
+  if (!tx) return { submitErr: "the wallet returned no transaction to submit" };
+  try { return { submitted: await submitBeef(appBaseOf(where), tx, [DISCOVERY]) }; }
+  catch (e) { return { submitErr: (e as Error).message }; }
+}
 
 function DeployPage() {
   const { wallet, status } = useWallet();
@@ -29,7 +43,7 @@ function DeployPage() {
     setBusy(true); setErr(""); setDone(undefined);
     try {
       const r = await deployMandala.execute(createContext(wallet), deployInput(f));
-      if (r.txid) setDone({ txid: r.txid, tx: r.tx, error: r.error });
+      if (r.txid) setDone({ txid: r.txid, tx: r.tx, error: r.error, ...(await submitDeploy(r.tx)) });
       else setErr(r.error ?? "the wallet returned no transaction");
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
@@ -43,11 +57,18 @@ function DeployPage() {
     setBusy(false);
   }
 
+  async function resubmit() {
+    if (!done) return;
+    setBusy(true);
+    setDone({ ...done, submitted: undefined, submitErr: undefined, ...(await submitDeploy(done.tx)) });
+    setBusy(false);
+  }
+
   const names = done ? namesOf(done.txid) : undefined;
   return (
     <>
       <h1>Deploy a token</h1>
-      <p className="mut small">A Mandala (BRC-162) token, made by your wallet: the deploy is output 0 of a transaction your wallet signs and broadcasts, and the token's id is that output. Nothing is sent to an overlay; an overlay serves the token once its owner activates it.</p>
+      <p className="mut small">A Mandala (BRC-162) token, made by your wallet: the deploy is output 0 of a transaction your wallet signs and broadcasts, and the token's id is that output. The page then submits the deploy to this overlay's discovery topic <code>{DISCOVERY}</code>; the overlay serves the token itself once its owner registers the token's topic.</p>
       <div className="card">
         <label>Symbol<input type="text" value={f.symbol} onChange={set("symbol")} placeholder="TOKEN" /></label>
         <label>Decimals (0 to 18)<input type="text" inputMode="numeric" value={f.decimals} onChange={set("decimals")} /></label>
@@ -80,7 +101,12 @@ function DeployPage() {
           ) : (
             <p className="ok small">In your wallet: basket <code>mandala {done.txid} 0</code>.</p>
           )}
-          <p className="mut small">An overlay serves the token once its owner activates the topic <code>{names.topic}</code> (<a href="../tokens/">Tokens on this overlay</a>).</p>
+          {done.submitted ? (
+            <p className="ok small">Submitted to this overlay under <code>{DISCOVERY}</code>: delivery <code>{done.submitted}</code>. The discovery topic has the deploy once admitted (lookup <code>ls_mandala_deploys</code>). If this overlay does not serve <code>{DISCOVERY}</code>, the submit still lands and nothing admits it.</p>
+          ) : done.submitErr ? (
+            <p className="status bad">Not submitted to this overlay: {done.submitErr} <button type="button" disabled={busy} onClick={resubmit}>Submit again</button></p>
+          ) : null}
+          <p className="mut small">An overlay serves the token once its owner registers the topic <code>{names.topic}</code> (<a href="../tokens/">Tokens on this overlay</a>).</p>
         </div>
       )}
     </>

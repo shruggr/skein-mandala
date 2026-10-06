@@ -7,12 +7,12 @@
  * topics: [{topic, program}]}`. A message to the app's box `<app>/register` (skein-overlay 0.7.7): `{fn:
  * "register", args: {topic, program: "mandala-topic"}}` or `{fn:
  * "deregister", args: {topic}}`, the topic `tm_<txid>`, `tm_<txid>_<vout>`
- * or `tm_mandala_deploys`. The step's answer is its result record (its CID
+ * or `tm_mandala`. The step's answer is its result record (its CID
  * on stdout): `{kind: "overlay-result", op, topic, active, changed}` or
  * `{kind: "overlay-result", op, error}` for a refusal.
  */
 
-export const DISCOVERY = "tm_mandala_deploys";
+export const DISCOVERY = "tm_mandala";
 /** The role in the app's `programs` that judges a Mandala topic. */
 export const PROGRAM = "mandala-topic";
 

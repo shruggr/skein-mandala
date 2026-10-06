@@ -11,7 +11,7 @@ app; one topic per token; the protocol first; governance later, per token.
 |---|---|---|---|
 | topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>` by the token rules |
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output |
-| discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala_deploys`: every token's deploy output |
+| discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
 | the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.7: serves the topics, keeps the registered set (`register` / `deregister`) |
 
@@ -122,7 +122,7 @@ hook for a topic that is not a token's does nothing.
 
 ## The discovery topic
 
-`tm_mandala_deploys` (#120 item 11): one fixed topic, not per token, that
+`tm_mandala` (#120 item 11): one fixed topic, not per token, that
 admits deploy outputs only, of every token. It is a registry of what tokens
 exist and the metadata each was deployed with (the deploy's payload:
 decimals, symbol, icon, ...).
@@ -141,7 +141,7 @@ decimals, symbol, icon, ...).
   removed. This is the shape of ts-stack's `metadataTokenId`, under its own
   key.
 - It is switched like a token: registered with `register {topic:
-  "tm_mandala_deploys", program: "mandala-topic"}`, dropped with
+  "tm_mandala", program: "mandala-topic"}`, dropped with
   `deregister`. It is not in `config.overlay.topics`: an entry there is
   served from the install on, which no message can turn off.
 
@@ -154,7 +154,7 @@ anywhere, in the configuration or in the rows.
 
 1. The owner sends `{fn: "register", args: {topic, program:
    "mandala-topic"}}` to the app's box `<app>/register`. The topic is
-   `tm_<txid>`, `tm_<txid>_<vout>` or `tm_mandala_deploys`; it follows from
+   `tm_<txid>`, `tm_<txid>_<vout>` or `tm_mandala`; it follows from
    how the token was deployed (the deploy page shows it). The row
    `{address: "register", sender: "$owner", program: "overlay"}` (relative;
    the install resolves it to `<app>/register`, skein#128) takes it to the
@@ -222,7 +222,8 @@ the registered ones. Mandala's topics are dynamic, so it declares none.
   `src/mandala/MandalaLookupService.ts`. They answer from governance state.
 - **An all-tokens topic**: one topic for every output of every Mandala
   token (wanted later for the 1sat hosted service). It gets its own name
-  when it comes; Deggen's are `tm_mandala` and `tm_mandala_registry`. The
-  discovery topic holds deploys only.
+  when it comes (Deggen's has `tm_mandala_registry`). The discovery topic
+  holds deploys only; it is named `tm_mandala` (0.6.0, was
+  `tm_mandala_deploys`), the name Deggen's uses too.
 - A registration profile (#120 item 5: the manager's settings in the app
   record), and an equivalence test in skein.

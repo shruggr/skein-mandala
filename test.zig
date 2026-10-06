@@ -1108,7 +1108,7 @@ test "program: a BRC-161 token deployed at output 0 is tm_<txid>, its id <txid>_
     try testing.expectEqualSlices(u32, &.{0}, try uintsOf(a, rt.get("coinsToRetain").?));
 }
 
-// --- the discovery topic (tm_mandala_deploys) and its lookup (ls_mandala_deploys) ---
+// --- the discovery topic (tm_mandala) and its lookup (ls_mandala_deploys) ---
 
 test "deploys: every valid deploy output of any token, nothing else, through the topic contract" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -1119,7 +1119,7 @@ test "deploys: every valid deploy output of any token, nothing else, through the
     const s = ms.store();
     const f = try Fixtures.init(a);
     const t = names.deploys_topic;
-    try testing.expectEqualStrings("tm_mandala_deploys", t);
+    try testing.expectEqualStrings("tm_mandala", t);
     try testing.expect(token.tokenIdOf(t) == null); // no token's topic
 
     inline for (.{ "fund", "legacy_fund" }) |nm| _ = try s.putBitcoin(a, .tx, f.raws.get(nm).?);

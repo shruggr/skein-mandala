@@ -9,7 +9,7 @@ describe("the owner's calls: the engine's register / deregister", () => {
     expect(register(`tm_${txid}_2`)).toEqual({ fn: "register", args: { topic: `tm_${txid}_2`, program: "mandala-topic" } });
   });
   it("a token id is not a topic; tm_<txid>_0 is no topic", () => {
-    for (const bad of [txid, `${txid}_0`, `${txid}.0`, `tm_${txid}_0`, `tm_${txid}_01`, `tm_${txid.toUpperCase()}`, `tm_${txid}_4294967296`, "tm_mandala", DISCOVERY]) {
+    for (const bad of [txid, `${txid}_0`, `${txid}.0`, `tm_${txid}_0`, `tm_${txid}_01`, `tm_${txid.toUpperCase()}`, `tm_${txid}_4294967296`, DISCOVERY]) {
       expect(() => tokenTopicOf(bad)).toThrow(/topic/);
     }
     expect(tokenTopicOf(`tm_${txid}_4294967295`)).toBe(`tm_${txid}_4294967295`);

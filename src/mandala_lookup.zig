@@ -33,7 +33,7 @@
 //! ones it had spent. A hook for a topic that is not a token's does nothing.
 //!
 //! The same program is the discovery lookup `ls_mandala_deploys` (by the
-//! service name it is called as): over `tm_mandala_deploys` only, the map
+//! service name it is called as): over `tm_mandala` only, the map
 //!
 //!   deploys      tok → null                       every admitted deploy (a token id is its deploy outpoint)
 //!
@@ -289,7 +289,7 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     if (eql(u8, service, deploys_service)) return
     \\# Mandala token deploys lookup service (ls_mandala_deploys)
     \\
-    \\Indexes the deploy outputs `tm_mandala_deploys` admits, by token id.
+    \\Indexes the deploy outputs `tm_mandala` admits, by token id.
     \\
     \\- `{ tokenId }`: the token's deploy output, with the metadata it was deployed with in
     \\  its script. The deploy's form is the token's origin: a binary deploy is a Mandala

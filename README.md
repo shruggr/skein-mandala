@@ -4,7 +4,7 @@ The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
 library they are built on, as a Zig package, and two pages an app that
-carries the components serves. Version **0.5.2**.
+carries the components serves. Version **0.6.0**.
 
 ## What it is
 
@@ -17,7 +17,9 @@ carries the components serves. Version **0.5.2**.
 - **The lookup service** (`bin/mandala-lookup.wasm`, `ls_mandala`): a
   token's unspent value outputs, its unspent authority outputs, one output
   by outpoint. Its index is under its own head, `<app>/ls_mandala`.
-- **The discovery topic** `tm_mandala_deploys` (a mode of
+- **The discovery topic** `tm_mandala` (0.6.0; was `tm_mandala_deploys`,
+  renamed to the name Deggen's Mandala overlay uses, so both converge on
+  one discovery topic; the lookup names are unchanged) (a mode of
   `mandala-topic`): every token's deploy output, so the metadata each token
   was deployed with can be found. Its lookup `ls_mandala_deploys` (a mode of
   `mandala-lookup`) answers `{tokenId}` with the deploy output.
@@ -74,7 +76,7 @@ body: {"fn": "register", "args": {"topic": "tm_<txid>", "program": "mandala-topi
 body: {"fn": "deregister", "args": {"topic": "tm_<txid>"}}
 ```
 
-The topic is `tm_<txid>`, `tm_<txid>_<vout>` or `tm_mandala_deploys` (the
+The topic is `tm_<txid>`, `tm_<txid>_<vout>` or `tm_mandala` (the
 discovery topic, registered the same way); it follows from how the token
 was deployed, and the deploy page shows it. `program` is always
 `mandala-topic`. Both calls are idempotent; the step's result record is
@@ -150,7 +152,7 @@ AMM) carries these in its tree and manifest:
    - the four listing and documentation http rows, as in `etc/app.json`.
 4. **The register call**, made by the owner once the app is installed, one
    per topic it runs: `{"fn": "register", "args": {"topic": "tm_<txid>",
-   "program": "mandala-topic"}}` (and `tm_mandala_deploys` the same way);
+   "program": "mandala-topic"}}` (and `tm_mandala` the same way);
    `{"fn": "deregister", "args": {"topic"}}` drops one.
 5. **`requires: ["chain/1"]`.**
 
@@ -168,7 +170,7 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.5.2.tar.gz",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.6.0.tar.gz",
         .hash = "<zig fetch --save prints it>",
     },
 },
@@ -199,8 +201,8 @@ by itself, so the pages are not served from this repo's manifest.
 
 | page | served at | what |
 |---|---|---|
-| deploy | `/<app>/mandala/deploy/` | **Deploy a token.** Open to anyone: a helper over the user's own wallet. Fields: symbol, decimals (0 to 18), fixed supply (an amount in whole tokens) or authority (amount 0, the deploy output mints), an optional icon outpoint (`txid_vout`). `@1sat/actions`' `deployMandala` builds the BRC-162 deploy at output 0, the wallet (connected through `@1sat/connect`) signs and broadcasts it and files it (basket `mandala <txid> 0`). The page shows the token id, the bare `<txid>` (a Mandala token), and the topic to register, `tm_<txid>`, which the owner copies to the tokens page to register. Nothing is sent to the overlay. If the filing step fails after the broadcast, "File it again" runs the SDK's `fileMandalaDeploy`. |
-| tokens | `/<app>/mandala/tokens/` | **Tokens on this overlay.** The owner's page. Lists the registered topics judged by `mandala-topic` (the overlay engine's head `<app>/topics`, `{kind: "overlay-topics", topics: [{topic, program}]}`, read through the instance's explorer, `/explore/head/<app>/topics`, which is the owner's read). Register by topic name (`tm_<txid>` or `tm_<txid>_<vout>`), deregister a listed topic, and a switch that registers or deregisters the discovery topic `tm_mandala_deploys`. Each change is the owner's message to the app's box `<app>/register`, the engine's `{fn: "register", args: {topic, program: "mandala-topic"}}` or `{fn: "deregister", args: {topic}}`, sent the way skein-site sends the owner's messages (skein's `RawBox.send`: a BRC-104-signed `POST <base>/sendMessage`, BRC-231 CBOR, recipient the instance's identity from its signed answers). The outcome is the step's result record (`{kind: "overlay-result", op, topic, active, changed}` or `{op, error}`), whose CID the step prints on stdout, read from the thread the message launched; then the set is read again. A wallet that is not the owner's gets the explorer's 403, and its messages are refused. |
+| deploy | `/<app>/mandala/deploy/` | **Deploy a token.** Open to anyone: a helper over the user's own wallet. Fields: symbol, decimals (0 to 18), fixed supply (an amount in whole tokens) or authority (amount 0, the deploy output mints), an optional icon outpoint (`txid_vout`). `@1sat/actions`' `deployMandala` builds the BRC-162 deploy at output 0, the wallet (connected through `@1sat/connect`) signs and broadcasts it and files it (basket `mandala <txid> 0`). Then the page submits the deploy (the AtomicBEEF the action returns) to the overlay it is served from: `POST <base>/<app>/submit`, the BEEF as the body, `X-Topics: tm_mandala` only (the token's own topic `tm_<txid>` did not exist before this transaction, so nobody serves it yet). The page POSTs itself, not through `deployMandala`'s `overlay` option (that hardcodes its topic list and waits for a STEAK, which skein-overlay does not answer). The answer `200 {id}` is delivery only; the page shows the id, and the discovery topic has the deploy once admitted (lookup `ls_mandala_deploys`). An overlay that does not serve `tm_mandala` takes the submit and admits nothing. The page shows the token id, the bare `<txid>` (a Mandala token), and the topic to register, `tm_<txid>`, which the owner copies to the tokens page to register. If the filing step fails after the broadcast, "File it again" runs the SDK's `fileMandalaDeploy`; if the submit fails, "Submit again". |
+| tokens | `/<app>/mandala/tokens/` | **Tokens on this overlay.** The owner's page. Lists the registered topics judged by `mandala-topic` (the overlay engine's head `<app>/topics`, `{kind: "overlay-topics", topics: [{topic, program}]}`, read through the instance's explorer, `/explore/head/<app>/topics`, which is the owner's read). Register by topic name (`tm_<txid>` or `tm_<txid>_<vout>`), deregister a listed topic, and a switch that registers or deregisters the discovery topic `tm_mandala`. Each change is the owner's message to the app's box `<app>/register`, the engine's `{fn: "register", args: {topic, program: "mandala-topic"}}` or `{fn: "deregister", args: {topic}}`, sent the way skein-site sends the owner's messages (skein's `RawBox.send`: a BRC-104-signed `POST <base>/sendMessage`, BRC-231 CBOR, recipient the instance's identity from its signed answers). The outcome is the step's result record (`{kind: "overlay-result", op, topic, active, changed}` or `{op, error}`), whose CID the step prints on stdout, read from the thread the message launched; then the set is read again. A wallet that is not the owner's gets the explorer's 403, and its messages are refused. **The token's own deploy** (0.6.0): after a register of `tm_<txid>` (or `tm_<txid>_<vout>`) answers registered, the page submits the token's deploy under that topic, so the topic admits its own deploy: the deploy's BEEF from the discovery lookup (`POST <base>/<app>/lookup {service: "ls_mandala_deploys", query: {tokenId}}`, the token id `<txid>` or `<txid>_<vout>` from the topic), submitted with `X-Topics: tm_<txid>`. If the lookup has none (a token deployed before 0.6.0, or on an overlay without discovery), the connected wallet's copy: `listOutputs` on the token's basket `mandala <txid> <vout>` with `include: "entire transactions"` (the wallet that deployed it holds it there until the deploy output is spent), submitted under both `tm_mandala` and `tm_<txid>`. Each registered token has "Submit deploy to this overlay", which runs the same on demand. The page shows the delivery id and where the BEEF came from; the topic has it once admitted. |
 
 The page takes the app's name and the instance from its own URL:
 `<base>/<app>/mandala/<page>/`, where `<base>` is the instance's origin or a
@@ -227,7 +229,7 @@ wallet asks for each when it is first used.
 cd web
 npm ci
 SKEIN_DIR=../../skein npm run build    # typecheck, then ../www; SKEIN_DIR: a skein checkout at web/lib/SKEIN_REV
-npm test                               # vitest: the page's place from its URL, the deploy input and the SDK's deploy from it, the owner's calls, the registered set and the answers, the sendMessage request
+npm test                               # vitest: the page's place from its URL, the deploy input and the SDK's deploy from it, the owner's calls, the registered set and the answers, the sendMessage request, the deploy's submit, the register → lookup → submit chain and the wallet fallback
 npm run typecheck
 ```
 
@@ -268,7 +270,7 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app, its programs and package | 0.5.2 (tag `v0.5.2`) |
+| this app, its programs and package | 0.6.0 (tag `v0.6.0`) |
 | the pages | `@1sat/actions` 0.0.233, `@1sat/react` 0.0.102, `@1sat/connect` 0.0.104, `@1sat/templates` 0.0.43, `@bsv/sdk` 2.8.6 (`web/package.json`, exact); skein's client at `web/lib/SKEIN_REV` |
 | skein-overlay | v0.7.7 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.7.1, through skein-overlay (modules `chain`, `sk`, `cbor`) |

@@ -20,7 +20,7 @@ const std = @import("std");
 
 pub const topic_prefix = "tm_";
 /// The discovery topic (shruggr/skein#120 item 11): every token's deploy output, one topic.
-pub const deploys_topic = "tm_mandala_deploys";
+pub const deploys_topic = "tm_mandala";
 /// Its lookup service.
 pub const deploys_service = "ls_mandala_deploys";
 

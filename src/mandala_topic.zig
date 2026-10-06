@@ -4,7 +4,7 @@
 //! **The topic.** `tm_<txid>` for a token deployed at output 0 (BRC-162, or
 //! BRC-161 there: the same token), `tm_<txid>_<vout>` for a BRC-161 token
 //! deployed at a non-zero output (name.zig), and the discovery topic
-//! `tm_mandala_deploys`. `identify` (the skein-overlay topic contract,
+//! `tm_mandala`. `identify` (the skein-overlay topic contract,
 //! `topic.Call`) admits every output of the topic's token that the BSV-21
 //! rules allow and retains the token coins the transaction spends (token.zig,
 //! bsv21.zig): the protocol only, nothing about governance. `metadata` and
@@ -72,7 +72,7 @@ pub const version = "0.4.0";
 
 pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     if (eql(u8, t, mandala.name.deploys_topic)) return
-    \\# Mandala token deploys (tm_mandala_deploys)
+    \\# Mandala token deploys (tm_mandala)
     \\
     \\The discovery topic: every token's deploy output, of every Mandala token. A
     \\registry of what tokens exist and the metadata each was deployed with (the deploy
@@ -85,7 +85,7 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\  `<txid>_<vout>` (`<txid>_0` at output 0).
     \\
     \\No other rule and no governance. It is served while registered with the overlay
-    \\engine (`register {topic: "tm_mandala_deploys", program: "mandala-topic"}`).
+    \\engine (`register {topic: "tm_mandala", program: "mandala-topic"}`).
     \\
     ;
     return
@@ -112,7 +112,7 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\control check: the protocol only.
     \\
     \\The overlay serves a token's topic once it is registered with the overlay engine
-    \\(`register {topic: "tm_<txid>", program: "mandala-topic"}`). The discovery topic `tm_mandala_deploys`
+    \\(`register {topic: "tm_<txid>", program: "mandala-topic"}`). The discovery topic `tm_mandala`
     \\holds every token's deploy output.
     \\
     ;

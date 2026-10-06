@@ -1,6 +1,6 @@
 {
   "name": "skein-mandala-pages",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Mandala's pages (deploy a token; the owner's registered token topics), built into ../www for an embedding app to serve under /<app>/mandala/. See ../README.md, \"Pages\".",

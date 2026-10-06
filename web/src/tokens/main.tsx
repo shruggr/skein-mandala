@@ -3,12 +3,16 @@
  * engine's registered topics (the head `<app>/topics`, through the explorer,
  * the owner's read), and changes them by the owner's `register` /
  * `deregister` messages to the app's box `<app>/register` (skein-overlay 0.7.7+).
+ * After a token's topic is registered, the page submits the token's deploy
+ * under it (src/overlay.ts `submitDeployToTopic`), so the topic admits its own
+ * deploy; "Submit deploy" does the same on demand.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@1sat/react";
 import { mount } from "../shell";
 import { whereOf } from "../where";
 import { Instance } from "./instance";
+import { appBaseOf, submitDeployToTopic } from "../overlay";
 import { DISCOVERY, answerOf, deregister, discovery, register, topicsOf, type Call } from "./list";
 
 const where = whereOf(location.href);
@@ -29,15 +33,36 @@ function TokensPage() {
   }, [inst]);
   useEffect(() => { void load(); }, [load]);
 
+  /** The token's deploy submitted under its topic: from the discovery lookup, or the wallet's copy. */
+  async function submitDeploy(t: string, prefix = ""): Promise<{ ok: boolean; text: string }> {
+    if (!where) return { ok: false, text: "no app" };
+    try {
+      const r = await submitDeployToTopic(appBaseOf(where), t, wallet ?? undefined);
+      const from = r.via === "lookup" ? "from the discovery lookup" : "from your wallet (the discovery lookup had none)";
+      return { ok: true, text: `${prefix}deploy submitted ${from} under ${r.topics.join(", ")}: delivery ${r.id}. The topic has it once admitted.` };
+    } catch (e) { return { ok: false, text: `${prefix}deploy not submitted: ${(e as Error).message}` }; }
+  }
+
   async function run(label: string, c: Call) {
     if (!inst || !where) return;
     setBusy(label); setNote(undefined);
     try {
       const a = answerOf(await inst.call(`${where.app}/register`, c));
-      setNote(a.ok ? { ok: true, text: `${a.topic}: ${a.active ? "registered" : "not registered"}` } : { ok: false, text: a.message });
+      if (a.ok && a.active && c.fn === "register" && a.topic !== DISCOVERY) {
+        setBusy(`${label}:submit`);
+        setNote(await submitDeploy(a.topic, `${a.topic}: registered; `));
+      } else {
+        setNote(a.ok ? { ok: true, text: `${a.topic}: ${a.active ? "registered" : "not registered"}` } : { ok: false, text: a.message });
+      }
     } catch (e) { setNote({ ok: false, text: (e as Error).message }); }
     setBusy("");
     await load();
+  }
+
+  async function resubmit(t: string) {
+    setBusy(`submit:${t}`); setNote(undefined);
+    setNote(await submitDeploy(t, `${t}: `));
+    setBusy("");
   }
 
   if (!where) return <p className="bad">This page is served at <code>/&lt;app&gt;/mandala/tokens/</code>; its URL names no app.</p>;
@@ -71,7 +96,10 @@ function TokensPage() {
                   {tokenTopics.map((t) => (
                     <tr key={t}>
                       <td><code>{t}</code></td>
-                      <td><button type="button" disabled={!!busy} onClick={() => void run(t, deregister(t))}>{busy === t ? "Deregistering…" : "Deregister"}</button></td>
+                      <td>
+                        <button type="button" disabled={!!busy} onClick={() => void resubmit(t)} title="The token's deploy, from the discovery lookup or your wallet, submitted under this topic">{busy === `submit:${t}` ? "Submitting…" : "Submit deploy to this overlay"}</button>{" "}
+                        <button type="button" disabled={!!busy} onClick={() => void run(t, deregister(t))}>{busy === t ? "Deregistering…" : "Deregister"}</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -85,7 +113,7 @@ function TokensPage() {
               Serve <code>{DISCOVERY}</code>: every token's deploy output, so the metadata each token was deployed with can be found (lookup <code>ls_mandala_deploys</code>).
             </label>
           </div>
-          {busy && <p className="status wait">Sent; waiting for the answer…</p>}
+          {busy && <p className="status wait">{busy.startsWith("submit:") || busy.endsWith(":submit") ? "Submitting the deploy…" : "Sent; waiting for the answer…"}</p>}
           {note && <p className={`status ${note.ok ? "ok" : "bad"}`}>{note.text}</p>}
         </>
       )}
