@@ -1235,3 +1235,181 @@ test "deploys lookup: {tokenId} → the deploy output; other topics ignored; kep
     const ld = try lookup.describe(a, ls, "documentation", .{ .map = &.{ .{ .key = "kind", .value = text("lookup-describe") }, .{ .key = "service", .value = text(names.deploys_service) } } });
     try testing.expect(std.mem.startsWith(u8, ld.getText("documentation").?, "# Mandala token deploys lookup"));
 }
+
+// --- the token list (fn "tokens", a read: shruggr/skein#120, #135) ---
+
+/// A raw transaction: one input spending `seed`'s output 0 (unsigned), the outputs given, 1 sat each.
+fn rawTx(a: std.mem.Allocator, seed: u8, outs: []const []const u8) []u8 {
+    var b: std.ArrayList(u8) = .empty;
+    b.appendSlice(a, &.{ 1, 0, 0, 0, 1 }) catch @panic("OOM");
+    b.appendSlice(a, &([_]u8{seed} ** 32)) catch @panic("OOM");
+    b.appendSlice(a, &.{ 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, @intCast(outs.len) }) catch @panic("OOM");
+    for (outs) |o| {
+        b.appendSlice(a, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }) catch @panic("OOM");
+        std.debug.assert(o.len < 0xfd); // the script's length, a one-byte varint
+        b.append(a, @intCast(o.len)) catch @panic("OOM");
+        b.appendSlice(a, o) catch @panic("OOM");
+    }
+    b.appendSlice(a, &.{ 0, 0, 0, 0 }) catch @panic("OOM");
+    return b.items;
+}
+
+test "deploy metadata: a DAG-CBOR map's sym, dec, icon (36-byte outpoint or 4-byte output index); a malformed attribute absent; not one map, none" {
+    // {"dec": 8, "sym": "GOLD", "icon": h'<32 bytes 0xab> 07000000'}
+    const icon36 = [_]u8{0xab} ** 32 ++ [_]u8{ 7, 0, 0, 0 };
+    const full = [_]u8{ 0xa3, 0x63, 'd', 'e', 'c', 0x08, 0x63, 's', 'y', 'm', 0x64, 'G', 'O', 'L', 'D', 0x64, 'i', 'c', 'o', 'n', 0x58, 36 } ++ icon36;
+    const m = brc162.metadataOf(&full);
+    try testing.expectEqualStrings("GOLD", m.sym.?);
+    try testing.expectEqual(@as(u8, 8), m.dec.?);
+    try testing.expectEqualSlices(u8, &([_]u8{0xab} ** 32), &m.icon.?.outpoint.txid);
+    try testing.expectEqual(@as(u32, 7), m.icon.?.outpoint.vout);
+    // {"icon": h'02000000', "x": [1, {"y": null}]}: an output index; an unknown key skipped whatever it holds.
+    const idx = [_]u8{ 0xa2, 0x64, 'i', 'c', 'o', 'n', 0x44, 2, 0, 0, 0, 0x61, 'x', 0x82, 0x01, 0xa1, 0x61, 'y', 0xf6 };
+    const mi = brc162.metadataOf(&idx);
+    try testing.expectEqual(@as(u32, 2), mi.icon.?.output);
+    try testing.expect(mi.sym == null and mi.dec == null);
+    // {"dec": 19, "sym": 5, "icon": h'0102'}: each malformed, each absent; the map still read.
+    const bad = [_]u8{ 0xa3, 0x63, 'd', 'e', 'c', 0x13, 0x63, 's', 'y', 'm', 0x05, 0x64, 'i', 'c', 'o', 'n', 0x42, 1, 2 };
+    const mb = brc162.metadataOf(&bad);
+    try testing.expect(mb.sym == null and mb.dec == null and mb.icon == null);
+    // {"dec": 8} beside a malformed sym: dec stands.
+    const half = [_]u8{ 0xa2, 0x63, 'd', 'e', 'c', 0x08, 0x63, 's', 'y', 'm', 0x05 };
+    try testing.expectEqual(@as(u8, 8), brc162.metadataOf(&half).dec.?);
+    // Not one DAG-CBOR map: none — an array, trailing bytes, a duplicate key, a non-minimal length, an indefinite map, nothing.
+    for ([_][]const u8{
+        &.{ 0x81, 0x01 },
+        &.{ 0xa1, 0x63, 'd', 'e', 'c', 0x08, 0x00 },
+        &.{ 0xa2, 0x63, 'd', 'e', 'c', 0x08, 0x63, 'd', 'e', 'c', 0x09 },
+        &.{ 0xa1, 0x78, 0x03, 'd', 'e', 'c', 0x08 },
+        &.{ 0xbf, 0x63, 'd', 'e', 'c', 0x08, 0xff },
+        &.{ 0xa1, 0x63, 'd', 'e' },
+        &.{},
+    }) |p| {
+        const x = brc162.metadataOf(p);
+        try testing.expect(x.sym == null and x.dec == null and x.icon == null);
+    }
+}
+
+test "tokens: {limit?, skip?} from the query string or a JSON body; anything else refused" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const d = try ls.parseTokensQuery(a, "", "");
+    try testing.expectEqual(@as(u64, 100), d.limit);
+    try testing.expectEqual(@as(u64, 0), d.skip);
+    const q = try ls.parseTokensQuery(a, "?limit=5&skip=2", "");
+    try testing.expectEqual(@as(u64, 5), q.limit);
+    try testing.expectEqual(@as(u64, 2), q.skip);
+    const j = try ls.parseTokensQuery(a, "", "{\"limit\": 1, \"skip\": 100000}");
+    try testing.expectEqual(@as(u64, 1), j.limit);
+    try testing.expectEqual(@as(u64, 100000), j.skip);
+    try testing.expectEqual(@as(u64, 7), (try ls.parseTokensQuery(a, "limit=3", "{\"limit\":7}")).limit); // the body's win
+    for ([_][2][]const u8{
+        .{ "limit=0", "" },       .{ "limit=101", "" },    .{ "skip=100001", "" }, .{ "limit=x", "" },
+        .{ "offset=1", "" },      .{ "limit", "" },        .{ "", "[1]" },         .{ "", "{\"limit\":\"5\"}" },
+        .{ "", "{\"skip\":-1}" }, .{ "", "{\"tokenId\":\"a\"}" }, .{ "", "not json" },
+    }) |c| try testing.expectError(error.BadQuery, ls.parseTokensQuery(a, c[0], c[1]));
+}
+
+test "tokens: every deploy tm_mandala admitted, its id by origin, topic, sym, dec, icon, outpoint; newest first; skip and limit; a rejected deploy gone" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var ms = w.store.MemStore.init(testing.allocator);
+    defer ms.deinit();
+    const s = ms.store();
+    const f = try Fixtures.init(a);
+    var l: Ls = .{ .a = a, .s = s, .service = names.deploys_service };
+    const t = names.deploys_topic;
+
+    try testing.expectEqual(@as(usize, 0), (try ls.tokens(a, s, null, null, .{})).len); // no index yet
+
+    // A Mandala deploy with a payload {"dec": 2, "sym": "AB", "icon": h'03000000'} (its own output 3).
+    const payload = [_]u8{ 0xa3, 0x63, 'd', 'e', 'c', 0x02, 0x63, 's', 'y', 'm', 0x62, 'A', 'B', 0x64, 'i', 'c', 'o', 'n', 0x44, 3, 0, 0, 0 };
+    const mine = rawTx(a, 0x11, &.{ tokenScript(a, null, 1000, pushOf(a, &payload)), &p2pkh_lock });
+    const mine_txid = w.beef.txidOf(mine);
+    try l.admitted(t, mine, &.{0});
+    const ld1 = f.raws.get("legacy_deploy1").?; // a BRC-161 deploy+mint at output 1
+    try l.admitted(t, ld1, &.{1});
+    const td = f.raws.get("token_deploy").?; // a binary deploy without display fields
+    try l.admitted(t, td, &.{0});
+
+    const list = try ls.tokens(a, s, l.state, null, .{});
+    try testing.expectEqual(@as(usize, 3), list.len);
+    // Unmined, all three: by deploy outpoint, highest first.
+    const want_order = blk: {
+        var hs = [_][]const u8{ try a.dupe(u8, &w.header.toHex(mine_txid)), try a.dupe(u8, &w.header.toHex(w.beef.txidOf(ld1))), try a.dupe(u8, &w.header.toHex(f.id)) };
+        std.mem.sort([]const u8, &hs, {}, struct {
+            fn gt(_: void, x: []const u8, y: []const u8) bool {
+                return std.mem.order(u8, x, y) == .gt;
+            }
+        }.gt);
+        break :blk hs;
+    };
+    for (want_order, list) |h, x| try testing.expectEqualStrings(h, x.txid);
+
+    for (list) |x| {
+        const hex = &w.header.toHex(mine_txid);
+        if (std.mem.eql(u8, x.txid, hex)) {
+            try testing.expectEqualStrings(hex, x.tokenId); // a Mandala token: the bare <txid>
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "tm_{s}", .{hex}), x.topic);
+            try testing.expectEqualStrings("AB", x.sym);
+            try testing.expectEqual(@as(u8, 2), x.dec);
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_3", .{hex}), x.icon.?);
+            try testing.expectEqual(@as(u32, 0), x.vout);
+        } else if (std.mem.eql(u8, x.txid, &w.header.toHex(w.beef.txidOf(ld1)))) {
+            const h1 = &w.header.toHex(w.beef.txidOf(ld1));
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_1", .{h1}), x.tokenId); // BSV-21's form
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "tm_{s}_1", .{h1}), x.topic);
+            try testing.expectEqual(@as(u32, 1), x.vout);
+            const want = (try brc161.decode(a, (try f.tx(a, "legacy_deploy1")).outputs[1].script)).?;
+            try testing.expectEqualStrings(want.sym orelse "", x.sym);
+            try testing.expectEqual(want.dec orelse 0, x.dec);
+        } else {
+            try testing.expectEqualStrings(&w.header.toHex(f.id), x.tokenId);
+            try testing.expectEqualStrings("", x.sym);
+            try testing.expectEqual(@as(u8, 0), x.dec);
+            try testing.expect(x.icon == null);
+        }
+    }
+
+    // skip, limit.
+    const page = try ls.tokens(a, s, l.state, null, .{ .skip = 1, .limit = 1 });
+    try testing.expectEqual(@as(usize, 1), page.len);
+    try testing.expectEqualStrings(list[1].txid, page[0].txid);
+    try testing.expectEqual(@as(usize, 0), (try ls.tokens(a, s, l.state, null, .{ .skip = 3 })).len);
+
+    // Rejected: gone from the list.
+    try l.rejected(t, mine);
+    try testing.expectEqual(@as(usize, 2), (try ls.tokens(a, s, l.state, null, .{})).len);
+
+    // The route: 200 JSON, no null icon; 400 on a bad query.
+    const req: Value = .{ .map = &.{ .{ .key = "method", .value = text("GET") }, .{ .key = "query", .value = text("limit=1") } } };
+    const r = try ls.tokensRoute(a, s, l.state, null, req);
+    try testing.expectEqual(@as(u64, 200), r.getUint("status").?);
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, a, r.getBytes("body").?, .{});
+    try testing.expectEqual(@as(usize, 1), parsed.array.items.len);
+    const o = parsed.array.items[0].object;
+    for ([_][]const u8{ "tokenId", "topic", "sym", "dec", "txid", "vout" }) |k| try testing.expect(o.get(k) != null);
+    if (o.get("icon")) |ic| try testing.expect(ic == .string);
+    const bad: Value = .{ .map = &.{.{ .key = "body", .value = .{ .bytes = "{\"limit\":0}" } }} };
+    try testing.expectEqual(@as(u64, 400), (try ls.tokensRoute(a, s, l.state, null, bad)).getUint("status").?);
+}
+
+test "tokens: newest first by the chain — unmined first, then the higher block, then the later position" {
+    const k1 = [_]u8{1} ** 36;
+    const k2 = [_]u8{2} ** 36;
+    const k3 = [_]u8{3} ** 36;
+    const k4 = [_]u8{4} ** 36;
+    const k5 = [_]u8{5} ** 36;
+    var ages = [_]ls.Age{
+        .{ .key = &k1, .height = 100, .offset = 5 },
+        .{ .key = &k2, .height = null, .offset = 0 },
+        .{ .key = &k3, .height = 200, .offset = 0 },
+        .{ .key = &k4, .height = 100, .offset = 9 },
+        .{ .key = &k5, .height = null, .offset = 0 },
+    };
+    std.mem.sort(ls.Age, &ages, {}, ls.newerFirst);
+    const want = [_]u8{ 5, 2, 3, 4, 1 };
+    for (want, ages) |b, x| try testing.expectEqual(b, x.key[0]);
+}

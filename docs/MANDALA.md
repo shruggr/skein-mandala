@@ -10,10 +10,10 @@ app; one topic per token; the protocol first; governance later, per token.
 | component | file | role | what |
 |---|---|---|---|
 | topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>` by the token rules |
-| lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output |
+| lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output; fn `tokens`: the token list, a read (0.7.0) |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.8: serves the topics, keeps the registered set (`register` / `deregister`) |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.8.0: serves the topics, keeps the registered set (`register` / `deregister`) |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -145,6 +145,48 @@ decimals, symbol, icon, ...).
   `deregister`. It is not in `config.overlay.topics`: an entry there is
   served from the install on, which no message can turn off.
 
+## The token list
+
+Decided (shruggr/skein#120, 2026-10-06): the token list is a read function
+of the Mandala components, not a BRC-24 query. `mandala-lookup`'s fn
+`tokens`, served by the read `/<app>/mandala/tokens` (the manifest's
+`reads[]`: `{"address": "/mandala/tokens", "program": "mandala-lookup",
+"fn": "tokens"}`; a call over the current state: any method, signed or not,
+no entry, nothing logged).
+
+- **Query**: `{limit?, skip?}`, in the query string
+  (`?limit=20&skip=40`) or a JSON body (both: the body's win). `limit` is 1
+  to 100 (default 100), `skip` 0 to 100000 (default 0). Any other key, or a
+  value out of range, is a 400 `{status: "error", message}`.
+- **Answer**: 200, a JSON array, one entry per deploy the discovery topic
+  `tm_mandala` admitted (the map `deploys` of `ls_mandala_deploys`, under
+  `<app>/ls_mandala_deploys`; nothing when the topic is not registered):
+
+  ```
+  [{tokenId, topic, sym, dec, icon?, txid, vout}]
+  ```
+
+  `tokenId` in its origin's form (`<txid>` for a binary deploy, `<txid>_<vout>`
+  for a BRC-161 one), `topic` the token's (`tm_<txid>` or
+  `tm_<txid>_<vout>`), `txid` / `vout` the deploy outpoint. `sym`, `dec`
+  and `icon` are the deploy's display fields: a BRC-161 deploy's JSON
+  `sym`, `dec`, `icon`; a BRC-162 deploy's payload, a DAG-CBOR map read by
+  the `mandala` module (`brc162.metadataOf`: `sym` a text string, `dec` an
+  unsigned integer 0 to 18, `icon` 36 bytes, an outpoint, or 4 bytes, an
+  output index of the deploy transaction; a malformed field is absent, as
+  in `@1sat/templates`). `sym` is `""` and `dec` 0 when the deploy carries
+  none; `icon` is left out when it has none, and is always an outpoint
+  `<txid>_<vout>` (an index `n` becomes `<deploy txid>_n`) or a BRC-161
+  deploy's `icon` as written.
+- **Order: newest first**, by the chain state (`chain/state`, read only):
+  a deploy not yet mined first, then by block height, then by position in
+  the block, highest first; ties (unmined) by deploy outpoint, highest
+  first. `skip` then `limit` apply to that order.
+- It reads only: the discovery index, the deploys' transactions in the
+  store, and the chain state's proofs. A deploy rejected after admission
+  has left the index (its `rejected` hook), so it is not listed; one spent
+  stays (a registry).
+
 ## Registering a topic
 
 The overlay serves only the topics the owner registered (#120 item 2; the
@@ -197,12 +239,21 @@ not remove what the topic admitted or the lookup's index of it.
 - `config.overlay`: no `topics`; `lookups` `ls_mandala` and
   `ls_mandala_deploys`, each `{"program": "mandala-lookup"}` with no
   `topics` list;
-- the rows: `{"address": "register", "sender": "$owner", "program":
+- the rows (`dispatch[]`, messages): `{"address": "register", "sender": "$owner", "program":
   "overlay"}` (the owner's `register` / `deregister`, box `<app>/register`),
   `{"address": "submit", "sender": "*", "program": "overlay", "filter":
   "beef"}` (the submission box `<app>/submit`: submissions by message and
-  from `POST /submit`, skein-overlay 0.7.6; no `""` row) and the four listing and documentation
-  http rows;
+  from `POST /submit`, skein-overlay 0.7.6; no `""` row);
+- the reads (`reads[]`, shruggr/skein#135; 0.7.0, were four http rows
+  before): the engine's four listing and documentation paths,
+  `/listTopicManagers`, `/listLookupServiceProviders`,
+  `/getDocumentationForTopicManager`,
+  `/getDocumentationForLookupServiceProvider` (each `{address, program:
+  "overlay", fn}`, as in `etc/app.json`), and the token list
+  `/mandala/tokens` (`mandala-lookup`, fn `tokens`). A read is served by a
+  call, anyone, signed or not, nothing logged; a row is a message (an http
+  row takes a signed request). `/lookup` (a read) and `/submit` (an http
+  row) are derived by the install from `config.overlay`;
 - `requires: ["chain/1"]`.
 
 A manifest MAY pre-declare topics in `config.overlay.topics` (an overlay

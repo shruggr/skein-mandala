@@ -4,7 +4,7 @@ The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
 library they are built on, as a Zig package, and two pages an app that
-carries the components serves. Version **0.6.2**.
+carries the components serves. Version **0.7.0**.
 
 ## What it is
 
@@ -23,6 +23,10 @@ carries the components serves. Version **0.6.2**.
   `mandala-topic`): every token's deploy output, so the metadata each token
   was deployed with can be found. Its lookup `ls_mandala_deploys` (a mode of
   `mandala-lookup`) answers `{tokenId}` with the deploy output.
+- **The token list** (0.7.0; a read, not a BRC-24 query): `mandala-lookup`'s
+  fn `tokens` at `/<app>/mandala/tokens`, `{limit?, skip?}` →
+  `[{tokenId, topic, sym, dec, icon?, txid, vout}]`, every deploy
+  `tm_mandala` admitted, newest first (docs/MANDALA.md "The token list").
 - **Token ids** (BRC-162 "Token identification"). A token that originated
   as Mandala (a binary deploy, always at output 0) is written as the bare
   `<txid>`. A token that originated as BSV-21 (a BRC-161 JSON deploy) is
@@ -55,9 +59,10 @@ Exported Zig modules:
 (docs/MANDALA.md "Registering a topic"), taken in the owner's box
 `<app>/register` (0.7.7; `<app>/overlay` from 0.6.2), and whose submissions are messages into the
 submission box `<app>/submit`, by message and from `POST /submit` (0.7.6;
-before, the app's own box `<app>`). `bin/overlay.wasm` here is the v0.7.8
+before, the app's own box `<app>`). `bin/overlay.wasm` here is the v0.8.0
 build, whose `register` takes `seed` (the tokens page's register seeds a
-token's topic with its deploy).
+token's topic with its deploy, 0.7.8) and whose listings and documentation
+are reads (0.8.0, shruggr/skein#135).
 
 **On its own** (`etc/app.json`, the reference manifest; the chain app first,
 which the overlay requires):
@@ -109,6 +114,13 @@ POST <base>/lookup
 {"service": "ls_mandala_deploys", "query": {"tokenId": "<txid>"}}
 ```
 
+**List the tokens** (a read: any method, signed or not):
+
+```
+GET <base>/mandala/tokens?limit=20&skip=0
+→ [{"tokenId": "<txid>", "topic": "tm_<txid>", "sym": "GOLD", "dec": 8, "icon": "<txid>_<vout>", "txid": "<txid>", "vout": 0}, …]
+```
+
 Each answer is an output-list: `{type: "output-list", outputs: [{beef,
 outputIndex}]}`, each output with its transaction's BEEF.
 
@@ -118,7 +130,7 @@ An app that serves Mandala tokens with its own programs beside them (an
 AMM) carries these in its tree and manifest:
 
 1. **The programs.** `bin/overlay.wasm` (the engine, skein-overlay
-   0.7.7), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
+   0.8.0), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
    this repo, under the roles `overlay`, `mandala-topic`, `mandala-lookup`.
 2. **`config.overlay`**, with no topics:
 
@@ -138,7 +150,7 @@ AMM) carries these in its tree and manifest:
    topics in `config.overlay.topics` (an overlay with fixed topics, e.g.
    OpNS's one global topic); Mandala's are dynamic, so it declares none.
    Gossip is on for every topic unless `gossip` turns one off.
-3. **The rows**:
+3. **The rows** (`dispatch[]`: messages; an http row takes a signed request):
    - `{"address": "register", "sender": "$owner", "program": "overlay"}`:
      the owner's message reaches the engine's `register` / `deregister` (the
      function is the body's `fn`). The address is relative: the install
@@ -150,15 +162,24 @@ AMM) carries these in its tree and manifest:
      where `POST /submit` admits it (skein-overlay 0.7.6). There is no `""`
      row: the app's own box `<app>` is the engine's own traffic, derived by
      the install.
-   - the four listing and documentation http rows, as in `etc/app.json`.
+   - **The reads** (`reads[]`, shruggr/skein#135: served by a call, anyone,
+     signed or not, nothing logged; a read and an http row never share a
+     path), as in `etc/app.json`: the four listing and documentation paths
+     of the engine (`{"address": "/listTopicManagers", "program":
+     "overlay", "fn": "listTopicManagers"}`, `/listLookupServiceProviders`
+     → `listLookupServiceProviders`, `/getDocumentationForTopicManager` →
+     `topicDocumentation`, `/getDocumentationForLookupServiceProvider` →
+     `lookupDocumentation`), which were http rows before 0.7.0, and the
+     token list `{"address": "/mandala/tokens", "program":
+     "mandala-lookup", "fn": "tokens"}`.
 4. **The register call**, made by the owner once the app is installed, one
    per topic it runs: `{"fn": "register", "args": {"topic": "tm_<txid>",
    "program": "mandala-topic"}}` (and `tm_mandala` the same way);
    `{"fn": "deregister", "args": {"topic"}}` drops one.
 5. **`requires: ["chain/1"]`.**
 
-The rest (`/submit`, `/lookup`, the box rows from `event` and `$self`) is
-derived from `config.overlay` by the install; a registered topic's gossip
+The rest (the http row `/submit`, the read `/lookup`, the box rows from
+`event` and `$self`) is derived from `config.overlay` by the install; a registered topic's gossip
 is routed by the engine's `subscribe` events (skein #119), not by rows.
 
 A program of the app's own that reads token outputs depends on the
@@ -171,7 +192,7 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.6.2.tar.gz",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.7.0.tar.gz",
         .hash = "<zig fetch --save prints it>",
     },
 },
@@ -215,7 +236,10 @@ host's `/@<handle>` dev form. So the same files work under any app name.
 `/<app>/` (skein-static's README has the rows). Asset paths are relative, so
 `/<app>/mandala/deploy` (redirected to `…/deploy/`) loads them from
 `/<app>/mandala/assets/`. Nothing is built on the skein: `www/` is committed
-as built.
+as built. The token list read is `/<app>/mandala/tokens` without the slash
+(0.7.0): an exact read takes that path, so the tokens page is reached at
+`/<app>/mandala/tokens/` only (the slash-less path answers the JSON list,
+not the redirect to the page).
 
 **The wallet's grouped request.** A wallet reads `manifest.json` at the
 origin's root, so these pages ship none. The deploy uses the protocol
@@ -253,7 +277,7 @@ zig build bin      # the same, into bin/ (committed)
 zig build test     # the parsers, the rules, the topic, the lookup, natively
 ```
 
-`bin/overlay.wasm` is copied from skein-overlay v0.7.8's build (`zig build
+`bin/overlay.wasm` is copied from skein-overlay v0.8.0's build (`zig build
 bin` there; the same bytes as its committed `bin/overlay.wasm`), not built
 here. With a local skein-overlay
 checkout: `zig build --fork=../skein-overlay`.
@@ -271,9 +295,9 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app, its programs and package | 0.6.2 (tag `v0.6.2`) |
+| this app, its programs and package | 0.7.0 (tag `v0.7.0`) |
 | the pages | `@1sat/actions` 0.0.233, `@1sat/react` 0.0.102, `@1sat/connect` 0.0.104, `@1sat/templates` 0.0.43, `@bsv/sdk` 2.8.6 (`web/package.json`, exact); skein's client at `web/lib/SKEIN_REV` |
-| skein-overlay | v0.7.8 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
+| skein-overlay | v0.8.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.7.1, through skein-overlay (modules `chain`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |
 

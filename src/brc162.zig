@@ -199,3 +199,151 @@ pub fn pushAmount(buf: *[10]u8, amount: u64) []const u8 {
     buf[0] = @intCast(n);
     return buf[0 .. n + 1];
 }
+
+// ---------------------------------------------------------------- a deploy's display fields
+
+/// A deploy's icon (BRC-162 "Deploy metadata"): a 36-byte outpoint (txid internal order ‖ uint32 LE
+/// vout), or a 4-byte uint32 LE output index in the deploy transaction itself.
+pub const Icon = union(enum) { outpoint: Id, output: u32 };
+
+/// A deploy payload's display fields, each when present and of its type.
+pub const Metadata = struct {
+    sym: ?[]const u8 = null,
+    dec: ?u8 = null,
+    icon: ?Icon = null,
+};
+
+/// The display fields of a deploy's payload: a DAG-CBOR map that may carry `sym` (a text string),
+/// `dec` (an unsigned integer 0..18) and `icon` (a byte string of 36 or 4 bytes), as
+/// @1sat/templates' `Mandala` reads them (`metadataOf`): a malformed attribute is absent, the
+/// others unaffected, other keys ignored. A payload that is not one DAG-CBOR map (strict: minimal
+/// lengths, definite lengths, text keys, no duplicate key, nothing after it) has none.
+pub fn metadataOf(payload: []const u8) Metadata {
+    var r: CborReader = .{ .b = payload };
+    return r.metadata() catch .{};
+}
+
+const CborReader = struct {
+    b: []const u8,
+    pos: usize = 0,
+
+    const Head = struct { major: u3, arg: u64 };
+
+    fn byte(self: *CborReader) !u8 {
+        if (self.pos >= self.b.len) return error.Truncated;
+        self.pos += 1;
+        return self.b[self.pos - 1];
+    }
+
+    /// An item's head: its major type and argument, minimally encoded and of definite length.
+    fn head(self: *CborReader) !Head {
+        const ib = try self.byte();
+        const major: u3 = @intCast(ib >> 5);
+        const info = ib & 31;
+        if (info < 24) return .{ .major = major, .arg = info };
+        const n: usize = switch (info) {
+            24 => 1,
+            25 => 2,
+            26 => 4,
+            27 => 8,
+            else => return error.Unsupported, // reserved, or indefinite length (not DAG-CBOR)
+        };
+        if (self.pos + n > self.b.len) return error.Truncated;
+        var v: u64 = 0;
+        for (self.b[self.pos .. self.pos + n]) |x| v = (v << 8) | x;
+        self.pos += n;
+        // Floats (major 7, 25..27) carry their bits; every other argument is minimal.
+        if (major != 7) {
+            const min: u64 = switch (n) {
+                1 => 24,
+                2 => 0x100,
+                4 => 0x10000,
+                else => 0x1_0000_0000,
+            };
+            if (v < min) return error.NotMinimal;
+        }
+        return .{ .major = major, .arg = v };
+    }
+
+    /// A count of items still to read: each takes a byte at least.
+    fn count(self: *CborReader, n: u64) !usize {
+        if (n > self.b.len - self.pos) return error.Truncated;
+        return @intCast(n);
+    }
+
+    fn bytesOf(self: *CborReader, len: u64) ![]const u8 {
+        if (len > self.b.len - self.pos) return error.Truncated;
+        const n: usize = @intCast(len);
+        defer self.pos += n;
+        return self.b[self.pos .. self.pos + n];
+    }
+
+    /// Skip one item (its head already read).
+    fn skipBody(self: *CborReader, h: Head, depth: u8) !void {
+        if (depth > 32) return error.TooDeep;
+        switch (h.major) {
+            0, 1 => {},
+            2, 3 => _ = try self.bytesOf(h.arg),
+            4 => for (0..try self.count(h.arg)) |_| try self.skip(depth + 1),
+            5 => for (0..try self.count(h.arg)) |_| {
+                const k = try self.head();
+                if (k.major != 3) return error.BadKey;
+                _ = try self.bytesOf(k.arg);
+                try self.skip(depth + 1);
+            },
+            6 => {
+                if (h.arg != 42) return error.Unsupported; // DAG-CBOR: links only
+                try self.skip(depth + 1);
+            },
+            7 => switch (h.arg) {
+                20, 21, 22 => {}, // false, true, null
+                else => if (h.arg <= 23) return error.Unsupported, // undefined, other simple values
+            },
+        }
+    }
+
+    fn skip(self: *CborReader, depth: u8) anyerror!void {
+        return self.skipBody(try self.head(), depth);
+    }
+
+    fn metadata(self: *CborReader) !Metadata {
+        const m = try self.head();
+        if (m.major != 5) return error.NotAMap;
+        var out: Metadata = .{};
+        var buf: [64][]const u8 = undefined;
+        var seen: std.ArrayList([]const u8) = .initBuffer(&buf);
+        for (0..try self.count(m.arg)) |_| {
+            const k = try self.head();
+            if (k.major != 3) return error.BadKey;
+            const key = try self.bytesOf(k.arg);
+            for (seen.items) |s| if (std.mem.eql(u8, s, key)) return error.DuplicateKey;
+            seen.appendBounded(key) catch return error.TooManyKeys;
+            const v = try self.head();
+            if (std.mem.eql(u8, key, "sym")) {
+                if (v.major == 3) {
+                    const t = try self.bytesOf(v.arg);
+                    if (std.unicode.utf8ValidateSlice(t)) out.sym = t;
+                    continue;
+                }
+            } else if (std.mem.eql(u8, key, "dec")) {
+                if (v.major == 0) {
+                    if (v.arg <= 18) out.dec = @intCast(v.arg);
+                    continue;
+                }
+            } else if (std.mem.eql(u8, key, "icon")) {
+                if (v.major == 2) {
+                    const ib = try self.bytesOf(v.arg);
+                    if (ib.len == 36) {
+                        out.icon = .{ .outpoint = .{ .txid = ib[0..32].*, .vout = std.mem.readInt(u32, ib[32..36], .little) } };
+                    } else if (ib.len == 4) {
+                        out.icon = .{ .output = std.mem.readInt(u32, ib[0..4], .little) };
+                    }
+                    continue;
+                }
+            }
+            try self.skipBody(v, 1);
+        }
+        if (self.pos != self.b.len) return error.TrailingBytes;
+        return out;
+    }
+};

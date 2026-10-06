@@ -324,6 +324,201 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     ;
 }
 
+// ---------------------------------------------------------------- the token list (fn "tokens", a read)
+
+/// The token list's query: `{limit?, skip?}`, from the query string or a JSON body (both: the body's win).
+pub const TokensQuery = struct { limit: u64 = max_limit, skip: u64 = 0 };
+
+fn tokensField(q: *TokensQuery, key: []const u8, v: u64) !void {
+    if (eql(u8, key, "limit")) {
+        if (v < 1 or v > max_limit) return error.BadQuery;
+        q.limit = v;
+    } else if (eql(u8, key, "skip")) {
+        if (v > max_skip) return error.BadQuery;
+        q.skip = v;
+    } else return error.BadQuery;
+}
+
+/// The token list's query from a request: the query string's `limit` / `skip` (decimal), then a JSON
+/// object body's (integers). Any other key, or a value out of range, is refused (error.BadQuery).
+pub fn parseTokensQuery(a: Allocator, query: []const u8, body: []const u8) !TokensQuery {
+    var q: TokensQuery = .{};
+    var it = std.mem.splitScalar(u8, if (std.mem.startsWith(u8, query, "?")) query[1..] else query, '&');
+    while (it.next()) |kv| {
+        if (kv.len == 0) continue;
+        const i = std.mem.indexOfScalar(u8, kv, '=') orelse return error.BadQuery;
+        const v = std.fmt.parseInt(u64, kv[i + 1 ..], 10) catch return error.BadQuery;
+        try tokensField(&q, kv[0..i], v);
+    }
+    if (std.mem.trim(u8, body, " \t\r\n").len == 0) return q;
+    const j = std.json.parseFromSliceLeaky(std.json.Value, a, body, .{}) catch return error.BadQuery;
+    if (j != .object) return error.BadQuery;
+    var jt = j.object.iterator();
+    while (jt.next()) |e| {
+        const v = e.value_ptr.*;
+        if (v != .integer or v.integer < 0) return error.BadQuery;
+        try tokensField(&q, e.key_ptr.*, @intCast(v.integer));
+    }
+    return q;
+}
+
+/// One token on the list: its id in its origin's form, its topic, the deploy's display fields
+/// (`sym` "" and `dec` 0 when the deploy carries none), its icon as an outpoint `<txid>_<vout>` (a
+/// BRC-162 icon by output index is that output of the deploy transaction), the deploy outpoint.
+pub const Listed = struct {
+    tokenId: []const u8,
+    topic: []const u8,
+    sym: []const u8,
+    dec: u8,
+    icon: ?[]const u8 = null,
+    txid: []const u8,
+    vout: u32,
+};
+
+/// Where a deploy stands for "newest first": its block height and position in the block from the
+/// chain state's proof (null: not mined, the newest), then its deploy outpoint.
+pub const Age = struct { key: []const u8, height: ?u32, offset: u64 };
+
+pub fn newerFirst(_: void, x: Age, y: Age) bool {
+    if (x.height == null and y.height != null) return true;
+    if (y.height == null and x.height != null) return false;
+    if (x.height) |hx| if (hx != y.height.?) return hx > y.height.?;
+    if (x.height != null and x.offset != y.offset) return x.offset > y.offset;
+    return std.mem.order(u8, x.key, y.key) == .gt;
+}
+
+fn ageOf(ch: *lookup.Chain, key: []const u8) !Age {
+    const txid = display(key[0..32].*);
+    const r = (try ch.proofRecord(txid)) orelse return .{ .key = key, .height = null, .offset = 0 };
+    const block = c.store.bitcoinHash(r.block) orelse return error.BadIndex;
+    const h = (try ch.chain().heightOf(block)) orelse return .{ .key = key, .height = null, .offset = 0 };
+    return .{ .key = key, .height = h, .offset = r.pos.offset };
+}
+
+fn hexOf(a: Allocator, internal: [32]u8) ![]const u8 {
+    return a.dupe(u8, &std.fmt.bytesToHex(display(internal), .lower));
+}
+
+/// A deploy the discovery index holds (its key: txid display ‖ vout BE), read from its transaction:
+/// null when the store does not hold it or the output is no deploy.
+fn listedOf(a: Allocator, s: c.store.Store, key: []const u8) !?Listed {
+    const op = opOf(key);
+    const raw = s.tryGet(a, &c.store.hashCid(.tx, op.txid)) orelse return null;
+    const tx = c.bsvz.transaction.Transaction.parse(a, raw) catch return null;
+    if (op.vout >= tx.outputs.len) return null;
+    const id: bsv21.TokenId = .{ .txid = op.txid, .vout = op.vout, .kind = if (op.vout == 0) .native else .legacy };
+    const t = (try bsv21.tokenOf(a, id, op.txid, op.vout, tx.outputs[op.vout].locking_script.bytes)) orelse return null;
+    if (t.role != .deploy) return null;
+    const nid: mandala.name.TokenId = .{ .txid = id.txid, .vout = id.vout, .kind = if (op.vout == 0) .native else .legacy };
+    var tb: [mandala.name.max_suffix_len]u8 = undefined;
+    var nb: [mandala.name.max_topic_len]u8 = undefined;
+    var out: Listed = .{
+        .tokenId = try a.dupe(u8, mandala.name.tokenIdText(&tb, nid, if (t.form == .binary) .mandala else .bsv21)),
+        .topic = try a.dupe(u8, mandala.name.topicName(&nb, nid)),
+        .sym = "",
+        .dec = 0,
+        .txid = try hexOf(a, op.txid),
+        .vout = op.vout,
+    };
+    switch (t.form) {
+        .binary => {
+            const m = mandala.brc162.metadataOf(t.binary.?.payload orelse "");
+            out.sym = m.sym orelse "";
+            out.dec = m.dec orelse 0;
+            if (m.icon) |ic| out.icon = switch (ic) {
+                .outpoint => |o| try std.fmt.allocPrint(a, "{s}_{d}", .{ try hexOf(a, o.txid), o.vout }),
+                .output => |n| try std.fmt.allocPrint(a, "{s}_{d}", .{ out.txid, n }),
+            };
+        },
+        .json => {
+            const j = t.json.?;
+            out.sym = j.sym orelse "";
+            out.dec = j.dec orelse 0;
+            out.icon = j.icon;
+        },
+    }
+    return out;
+}
+
+/// The token list (shruggr/skein#120, decided 2026-10-06: a read function of the Mandala
+/// components, not a BRC-24 query): every deploy the discovery topic `tm_mandala` admitted (the
+/// map `deploys` of `ls_mandala_deploys`, its state record `deploys_state`), newest first by the
+/// chain state (`chain_state`; unmined first, then by block height and position, highest first),
+/// `skip` then `limit` of them. Reads only.
+pub fn tokens(a: Allocator, s: c.store.Store, deploys_state: ?[]const u8, chain_state: ?[]const u8, q: TokensQuery) ![]const Listed {
+    var svc = try Service.load(a, s, deploys_service, spec.maps, deploys_state);
+    var net: c.chain.Network = .main;
+    if (chain_state) |r| net = c.chain.Network.parse((try s.getValue(a, r)).getText("network") orelse "") orelse return error.BadChainState;
+    var ch = try lookup.Chain.load(a, s, chain_state, net);
+    const all = try svc.map("deploys").prefixed(&.{});
+    const ages = try a.alloc(Age, all.len);
+    for (all, ages) |kv, *x| {
+        if (kv.key.len != 36) return error.BadIndex;
+        x.* = try ageOf(&ch, kv.key);
+    }
+    std.mem.sort(Age, ages, {}, newerFirst);
+    var out: std.ArrayList(Listed) = .empty;
+    var skipped: u64 = 0;
+    for (ages) |x| {
+        if (out.items.len >= q.limit) break;
+        const l = (try listedOf(a, s, x.key)) orelse continue;
+        if (skipped < q.skip) {
+            skipped += 1;
+            continue;
+        }
+        try out.append(a, l);
+    }
+    return out.items;
+}
+
+fn respond(a: Allocator, status: u64, body: []const u8) !Value {
+    return .{ .map = try a.dupe(c.cbor.Entry, &.{
+        .{ .key = "status", .value = .{ .uint = status } },
+        .{ .key = "type", .value = .{ .text = "application/json" } },
+        .{ .key = "body", .value = .{ .bytes = body } },
+    }) };
+}
+
+/// The read `/<app>/mandala/tokens` (the route handler contract, any method): `{limit?, skip?}` →
+/// 200 `[{tokenId, topic, sym, dec, icon?, txid, vout}]`, or 400 `{status: "error", message}`.
+/// `deploys_state` is the head `<app>/ls_mandala_deploys`'s record, `chain_state` the head `chain/state`'s.
+pub fn tokensRoute(a: Allocator, s: c.store.Store, deploys_state: ?[]const u8, chain_state: ?[]const u8, req: Value) !Value {
+    const q = parseTokensQuery(a, req.getText("query") orelse "", req.getBytes("body") orelse "") catch
+        return respond(a, 400, "{\"status\":\"error\",\"message\":\"the query is {limit?: 1..100, skip?: 0..100000}, in the query string or a JSON body\"}");
+    const list = try tokens(a, s, deploys_state, chain_state, q);
+    var w: std.Io.Writer.Allocating = .init(a);
+    try std.json.Stringify.value(list, .{ .emit_null_optional_fields = false }, &w.writer);
+    return respond(a, 200, w.written());
+}
+
+/// The app a read's call names: the read's `app` (the install's), else its program record's, else "mandala".
+fn appOfRead(a: Allocator, s: c.store.Store, req: Value) ![]const u8 {
+    const m = req.get("match") orelse return "mandala";
+    if (m.getText("app")) |x| return x;
+    const p = m.getCid("program") orelse return "mandala";
+    return (try s.getValue(a, p)).getText("app") orelse "mandala";
+}
+
+const sk = @import("overlay_sk");
+var delegate = false;
+
+fn run(a: Allocator) anyerror!void {
+    const in = try sk.input(a);
+    if (!eql(u8, in.getText("fn") orelse "", "tokens")) {
+        delegate = true;
+        return;
+    }
+    const req = try sk.callArg(a, in);
+    const s = sk.store();
+    const app = try appOfRead(a, s, req);
+    const deploys = try sk.head(a, try lookup.headName(a, app, deploys_service));
+    try sk.answer(a, try tokensRoute(a, s, deploys, try sk.head(a, lookup.chain_head), req));
+}
+
+/// A call: fn "tokens" (the token list, a read), else the lookup contract's (fn "lookup", the hooks,
+/// "metadata", "documentation").
 pub fn main() u8 {
-    return lookup.main(spec);
+    const rc = sk.main("mandala-lookup", run);
+    if (delegate) return lookup.main(spec);
+    return rc;
 }
