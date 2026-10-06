@@ -13,7 +13,7 @@ app; one topic per token; the protocol first; governance later, per token.
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala_deploys`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.4: serves the topics, keeps the registered set (`register` / `deregister`) |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.7.6: serves the topics, keeps the registered set (`register` / `deregister`) |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -192,9 +192,9 @@ not remove what the topic admitted or the lookup's index of it.
   `topics` list;
 - the rows: `{"address": "overlay", "sender": "$owner", "program":
   "overlay"}` (the owner's `register` / `deregister`, box `<app>/overlay`),
-  `{"address": "", "sender": "*", "program": "overlay", "filter": "beef"}`
-  (the app's own box `<app>`: submissions by message and from `POST
-  /submit`, skein-overlay 0.7.2+) and the four listing and documentation
+  `{"address": "submit", "sender": "*", "program": "overlay", "filter":
+  "beef"}` (the submission box `<app>/submit`: submissions by message and
+  from `POST /submit`, skein-overlay 0.7.6; no `""` row) and the four listing and documentation
   http rows;
 - `requires: ["chain/1"]`.
 

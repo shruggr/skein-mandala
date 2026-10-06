@@ -4,7 +4,7 @@ The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
 library they are built on, as a Zig package, and two pages an app that
-carries the components serves. Version **0.5.0**.
+carries the components serves. Version **0.5.1**.
 
 ## What it is
 
@@ -51,8 +51,10 @@ Exported Zig modules:
 **The engine.** The components need skein-overlay 0.7.2 or later, whose
 `register` / `deregister` serve topics registered at runtime
 (docs/MANDALA.md "Registering a topic"), taken in the owner's box
-`<app>/overlay` (0.6.2), and whose submissions are messages into the app's
-box `<app>` (0.7.2). `bin/overlay.wasm` here is the v0.7.4 build.
+`<app>/overlay` (0.6.2), and whose submissions are messages into the
+submission box `<app>/submit`, by message and from `POST /submit` (0.7.6;
+before, the app's own box `<app>`). `bin/overlay.wasm` here is the v0.7.6
+build.
 
 **On its own** (`etc/app.json`, the reference manifest; the chain app first,
 which the overlay requires):
@@ -113,7 +115,7 @@ An app that serves Mandala tokens with its own programs beside them (an
 AMM) carries these in its tree and manifest:
 
 1. **The programs.** `bin/overlay.wasm` (the engine, skein-overlay
-   0.7.4), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
+   0.7.6), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
    this repo, under the roles `overlay`, `mandala-topic`, `mandala-lookup`.
 2. **`config.overlay`**, with no topics:
 
@@ -138,10 +140,12 @@ AMM) carries these in its tree and manifest:
      the owner's message reaches the engine's `register` / `deregister` (the
      function is the body's `fn`). The address is relative: the install
      resolves it to `<app>/overlay` (skein#128).
-   - `{"address": "", "sender": "*", "program": "overlay", "filter":
-     "beef"}`: the app's own box `<app>`, open to anyone, where a submission
-     is a message `{fn: "submit", args: {beef, topics}}` and where `POST
-     /submit` delivers it (skein-overlay 0.7.2+).
+   - `{"address": "submit", "sender": "*", "program": "overlay", "filter":
+     "beef"}`: the submission box `<app>/submit`, open to anyone, where a
+     submission is a message `{fn: "submit", args: {beef, topics}}` and
+     where `POST /submit` admits it (skein-overlay 0.7.6). There is no `""`
+     row: the app's own box `<app>` is the engine's own traffic, derived by
+     the install.
    - the four listing and documentation http rows, as in `etc/app.json`.
 4. **The register call**, made by the owner once the app is installed, one
    per topic it runs: `{"fn": "register", "args": {"topic": "tm_<txid>",
@@ -163,7 +167,7 @@ A program of the app's own that reads token outputs depends on the
 ```zig
 .dependencies = .{
     .skein_mandala = .{
-        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.5.0.tar.gz",
+        .url = "https://github.com/shruggr/skein-mandala/archive/refs/tags/v0.5.1.tar.gz",
         .hash = "<zig fetch --save prints it>",
     },
 },
@@ -245,7 +249,7 @@ zig build bin      # the same, into bin/ (committed)
 zig build test     # the parsers, the rules, the topic, the lookup, natively
 ```
 
-`bin/overlay.wasm` is copied from skein-overlay v0.7.4's build (`zig build
+`bin/overlay.wasm` is copied from skein-overlay v0.7.6's build (`zig build
 bin` there; the same bytes as its committed `bin/overlay.wasm`), not built
 here. With a local skein-overlay
 checkout: `zig build --fork=../skein-overlay`.
@@ -263,9 +267,9 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app, its programs and package | 0.5.0 (tag `v0.5.0`) |
+| this app, its programs and package | 0.5.1 (tag `v0.5.1`) |
 | the pages | `@1sat/actions` 0.0.233, `@1sat/react` 0.0.102, `@1sat/connect` 0.0.104, `@1sat/templates` 0.0.43, `@bsv/sdk` 2.8.6 (`web/package.json`, exact); skein's client at `web/lib/SKEIN_REV` |
-| skein-overlay | v0.7.4 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
+| skein-overlay | v0.7.6 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.7.1, through skein-overlay (modules `chain`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |
 
