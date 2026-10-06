@@ -104,3 +104,71 @@ export function answerOf(v: unknown): Answer {
   }
   return { ok: false, message: `an answer not in the overlay-result shape: ${JSON.stringify(v)}` };
 }
+
+/**
+ * The engine's two roles, the owner's switch (skein-overlay 0.9.2; David,
+ * 2026-10-07: "this shouldn't have been a config in the manifest. This
+ * should be a setting that the user is configuring"). Sent where register
+ * is, `<app>/register`: `{fn: "market", args: {window} | {off: true}}`,
+ * `{fn: "validator", args: {every} | {off: true}}`. The answer (the step's
+ * result record) carries the roles in effect, `market?: {window}` and
+ * `validator?: {every}`, each only when on. The switch is kept beside the
+ * set in `<app>/topics` (`market?` / `validator?`: `{window}` / `{every}` or
+ * `{off: true}`); never switched, the role is the manifest's
+ * `config.overlay.market` / `.validator` (the app record `<app>/app`).
+ */
+export type Role = "market" | "validator";
+export interface Roles {
+  market?: { window: number };
+  validator?: { every: number };
+}
+export type RoleCall = { fn: "market"; args: { window: number } | { off: true } } | { fn: "validator"; args: { every: number } | { off: true } };
+
+/** The ms a switch turned on asks for when the page names none: a liveness window of 40 s, a beat every 30 s. */
+export const DEFAULT_WINDOW = 40_000;
+export const DEFAULT_EVERY = 30_000;
+
+/** A role switched on (with its ms) or off. */
+export function roleSwitch(role: Role, on: boolean, ms?: number): RoleCall {
+  if (!on) return role === "market" ? { fn: "market", args: { off: true } } : { fn: "validator", args: { off: true } };
+  return role === "market" ? { fn: "market", args: { window: ms ?? DEFAULT_WINDOW } } : { fn: "validator", args: { every: ms ?? DEFAULT_EVERY } };
+}
+
+const msOf = (v: unknown, field: "window" | "every"): number | undefined => {
+  const n = (v as Record<string, unknown> | undefined)?.[field];
+  return typeof n === "number" && Number.isInteger(n) ? n : undefined;
+};
+
+/**
+ * The roles in effect, as the engine reads them: the switch kept in the set's
+ * record (`<app>/topics`) when sent, else the app record's (`<app>/app`)
+ * `config.overlay.market` / `.validator`.
+ */
+export function rolesOf(topicsRecord: unknown, appRecord: unknown): Roles {
+  const sw = (topicsRecord ?? {}) as Record<string, unknown>;
+  const cfg = (((appRecord ?? {}) as { config?: { overlay?: Record<string, unknown> } }).config?.overlay ?? {}) as Record<string, unknown>;
+  const out: Roles = {};
+  for (const [role, field] of [["market", "window"], ["validator", "every"]] as const) {
+    const s = sw[role] as Record<string, unknown> | undefined;
+    const ms = s !== undefined ? (s.off === true ? undefined : msOf(s, field)) : msOf(cfg[role], field);
+    if (ms !== undefined) (out as Record<string, unknown>)[role] = { [field]: ms };
+  }
+  return out;
+}
+
+export type RolesAnswer = { ok: true; roles: Roles } | { ok: false; message: string };
+
+/** A switch's step result record: the roles in effect after it. */
+export function rolesAnswerOf(v: unknown): RolesAnswer {
+  const r = (v ?? {}) as { kind?: unknown; op?: unknown; error?: unknown; market?: unknown; validator?: unknown };
+  if (r.kind === "overlay-result" && r.error !== undefined) return { ok: false, message: String(r.error) };
+  if (r.kind === "overlay-result" && (r.op === "market" || r.op === "validator")) {
+    const roles: Roles = {};
+    const w = msOf(r.market, "window");
+    const e = msOf(r.validator, "every");
+    if (w !== undefined) roles.market = { window: w };
+    if (e !== undefined) roles.validator = { every: e };
+    return { ok: true, roles };
+  }
+  return { ok: false, message: `an answer not in the overlay-result shape: ${JSON.stringify(v)}` };
+}
