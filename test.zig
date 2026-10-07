@@ -677,14 +677,12 @@ test "topic names: tm_<txid> native, tm_<txid>_<vout> legacy; AMM-prefixed names
         try testing.expect(names.tokenIdOfString(bad) == null);
     }
 
-    // Written out in the origin's form: Mandala `<txid>`, BSV-21 `<txid>_<vout>` (`_0` included).
+    // Written out `<txid>_<vout>` for every token, `_0` included (BRC-162 "Token identification").
     var tb: [names.max_suffix_len]u8 = undefined;
     const at0: names.TokenId = .{ .txid = got };
-    try testing.expectEqualStrings(rev[3..], names.tokenIdText(&tb, at0, .mandala));
-    try testing.expectEqualStrings(rev[3..] ++ "_0", names.tokenIdText(&tb, at0, .bsv21));
+    try testing.expectEqualStrings(rev[3..] ++ "_0", names.tokenIdText(&tb, at0));
     const at3: names.TokenId = .{ .txid = got, .vout = 3, .kind = .legacy };
-    try testing.expectEqualStrings(rev[3..] ++ "_3", names.tokenIdText(&tb, at3, .bsv21));
-    try testing.expectEqualStrings(rev[3..] ++ "_3", names.tokenIdText(&tb, at3, .mandala)); // only BSV-21 has one
+    try testing.expectEqualStrings(rev[3..] ++ "_3", names.tokenIdText(&tb, at3));
 }
 
 fn callArgs(a: std.mem.Allocator, t: []const u8, tx_cid: []const u8, previous: []const u32) !Value {
@@ -1159,33 +1157,29 @@ test "deploys: every valid deploy output of any token, nothing else, through the
     try testing.expect(std.mem.startsWith(u8, (try topic.describe(a, program, "documentation", arg)).getText("documentation").?, "# Mandala token deploys"));
 }
 
-test "token id text by origin: a binary deploy is Mandala's (`<txid>`), a BRC-161 JSON deploy BSV-21's (`<txid>_<vout>`)" {
+test "token id text: `<txid>_<vout>` for every deploy, binary or BRC-161 JSON, `_0` included" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const f = try Fixtures.init(a);
-    const Case = struct { name: []const u8, vout: u32, origin: names.Origin, suffix: []const u8 };
+    const Case = struct { name: []const u8, vout: u32 };
     for ([_]Case{
-        .{ .name = "token_deploy", .vout = 0, .origin = .mandala, .suffix = "" },
-        .{ .name = "legacy_deploy0", .vout = 0, .origin = .bsv21, .suffix = "_0" },
-        .{ .name = "legacy_deploy1", .vout = 1, .origin = .bsv21, .suffix = "_1" },
-        .{ .name = "legacy_auth_deploy", .vout = 0, .origin = .bsv21, .suffix = "_0" },
+        .{ .name = "token_deploy", .vout = 0 },
+        .{ .name = "legacy_deploy0", .vout = 0 },
+        .{ .name = "legacy_deploy1", .vout = 1 },
+        .{ .name = "legacy_auth_deploy", .vout = 0 },
     }) |c| {
         const tx = try f.tx(a, c.name);
-        const origin = (try token.originOf(a, tx.txid, c.vout, tx.outputs[c.vout].script)).?;
-        try testing.expectEqual(c.origin, origin);
+        const id = (try token.deployOf(a, tx.txid, c.vout, tx.outputs[c.vout].script)).?;
         var tb: [names.max_suffix_len]u8 = undefined;
-        const want = try std.fmt.allocPrint(a, "{s}{s}", .{ &w.header.toHex(tx.txid), c.suffix });
-        const id: names.TokenId = .{ .txid = tx.txid, .vout = c.vout, .kind = if (c.vout == 0) .native else .legacy };
-        try testing.expectEqualStrings(want, names.tokenIdText(&tb, id, origin));
+        const want = try std.fmt.allocPrint(a, "{s}_{d}", .{ &w.header.toHex(tx.txid), c.vout });
+        const nid: names.TokenId = .{ .txid = id.txid, .vout = id.vout, .kind = if (id.vout == 0) .native else .legacy };
+        try testing.expectEqualStrings(want, names.tokenIdText(&tb, nid));
         // And the text names the same token back.
         const back = names.tokenIdOfString(want).?;
         try testing.expectEqualSlices(u8, &tx.txid, &back.txid);
         try testing.expectEqual(c.vout, back.vout);
     }
-    // Not a deploy: no origin.
-    const pool = try f.tx(a, "pool_deploy");
-    try testing.expect((try token.originOf(a, pool.txid, 0, pool.outputs[0].script)) == null);
 }
 
 test "deploys lookup: {tokenId} → the deploy output; other topics ignored; kept once spent, dropped on rejection" {
@@ -1206,7 +1200,7 @@ test "deploys lookup: {tokenId} → the deploy output; other topics ignored; kep
     try l.admitted(t, deploy, &.{0});
     try l.admitted(t, d1, &.{1});
     try expectOps(&.{opName(a, deploy, 0)}, try l.ask(&.{.{ .key = "tokenId", .value = text(id) }}));
-    try expectOps(&.{opName(a, d1, 1)}, try l.ask(&.{.{ .key = "tokenId", .value = text(id1) }}));
+    // Every input form of the id: the bare `<txid>` (taken, never written), BRC-36 `<txid>.<vout>`.
     // Every form of the id: the Mandala token's bare `<txid>`, BRC-36 `<txid>.<vout>`.
     try expectOps(&.{opName(a, deploy, 0)}, try l.ask(&.{.{ .key = "tokenId", .value = text(id[0..64]) }}));
     try expectOps(&.{opName(a, deploy, 0)}, try l.ask(&.{.{ .key = "tokenId", .value = text(try std.fmt.allocPrint(a, "{s}.0", .{id[0..64]})) }}));
@@ -1311,7 +1305,7 @@ test "tokens: {limit?, skip?} from the query string or a JSON body; anything els
     }) |c| try testing.expectError(error.BadQuery, ls.parseTokensQuery(a, c[0], c[1]));
 }
 
-test "tokens: every deploy tm_mandala admitted, its id by origin, topic, sym, dec, icon, outpoint; newest first; skip and limit; a rejected deploy gone" {
+test "tokens: every deploy tm_mandala admitted, its id `<txid>_<vout>`, topic, sym, dec, icon, outpoint; newest first; skip and limit; a rejected deploy gone" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -1351,7 +1345,7 @@ test "tokens: every deploy tm_mandala admitted, its id by origin, topic, sym, de
     for (list) |x| {
         const hex = &w.header.toHex(mine_txid);
         if (std.mem.eql(u8, x.txid, hex)) {
-            try testing.expectEqualStrings(hex, x.tokenId); // a Mandala token: the bare <txid>
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_0", .{hex}), x.tokenId); // `<txid>_0`, a Mandala token too
             try testing.expectEqualStrings(try std.fmt.allocPrint(a, "tm_{s}", .{hex}), x.topic);
             try testing.expectEqualStrings("AB", x.sym);
             try testing.expectEqual(@as(u8, 2), x.dec);
@@ -1359,14 +1353,14 @@ test "tokens: every deploy tm_mandala admitted, its id by origin, topic, sym, de
             try testing.expectEqual(@as(u32, 0), x.vout);
         } else if (std.mem.eql(u8, x.txid, &w.header.toHex(w.beef.txidOf(ld1)))) {
             const h1 = &w.header.toHex(w.beef.txidOf(ld1));
-            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_1", .{h1}), x.tokenId); // BSV-21's form
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_1", .{h1}), x.tokenId);
             try testing.expectEqualStrings(try std.fmt.allocPrint(a, "tm_{s}_1", .{h1}), x.topic);
             try testing.expectEqual(@as(u32, 1), x.vout);
             const want = (try brc161.decode(a, (try f.tx(a, "legacy_deploy1")).outputs[1].script)).?;
             try testing.expectEqualStrings(want.sym orelse "", x.sym);
             try testing.expectEqual(want.dec orelse 0, x.dec);
         } else {
-            try testing.expectEqualStrings(&w.header.toHex(f.id), x.tokenId);
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_0", .{&w.header.toHex(f.id)}), x.tokenId);
             try testing.expectEqualStrings("", x.sym);
             try testing.expectEqual(@as(u8, 0), x.dec);
             try testing.expect(x.icon == null);

@@ -8,16 +8,19 @@ describe("ids (David 2026-10-08: expandable, copyable)", () => {
     expect(shortId(txid)).toBe("abababab…ababcdef");
     expect(shortId(`tm_${txid}_2`)).toBe("tm_abababab…ababcdef_2");
     expect(shortId(`${txid}.1`)).toBe("abababab…ababcdef.1");
+    expect(shortId(`${txid}_0`)).toBe("abababab…ababcdef_0"); // a token id
     expect(shortId("tm_mandala")).toBe("tm_mandala");
   });
-  it("finds the ids in a status line: txids, topics, outpoints, legacy token ids", () => {
-    const line = `tm_${txid}: registered (seeded: ${txid}.0, ${txid}_3; missing: none).`;
+  it("finds the ids in a status line: txids, topics, outpoints, token ids", () => {
+    const line = `tm_${txid}: registered (seeded: ${txid}.0, ${txid}_3, ${txid}_0; missing: none).`;
     expect(idParts(line)).toEqual([
       { id: true, text: `tm_${txid}` },
       { id: false, text: ": registered (seeded: " },
       { id: true, text: `${txid}.0` },
       { id: false, text: ", " },
       { id: true, text: `${txid}_3` },
+      { id: false, text: ", " },
+      { id: true, text: `${txid}_0` },
       { id: false, text: "; missing: none)." },
     ]);
   });

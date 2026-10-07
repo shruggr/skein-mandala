@@ -82,7 +82,7 @@ describe("signed: the lookup goes through the wallet's BRC-104 client", () => {
 
 describe("a token topic's own deploy", () => {
   it("the token id from the topic", () => {
-    expect(tokenOfTopic(`tm_${txid}`)).toEqual({ tokenId: txid, txid, vout: 0 });
+    expect(tokenOfTopic(`tm_${txid}`)).toEqual({ tokenId: `${txid}_0`, txid, vout: 0 });
     expect(tokenOfTopic(`tm_${txid}_3`)).toEqual({ tokenId: `${txid}_3`, txid, vout: 3 });
     expect(() => tokenOfTopic("tm_mandala")).toThrow(/token's topic/);
   });
@@ -91,7 +91,7 @@ describe("a token topic's own deploy", () => {
     const r = await submitDeployToTopic(base, `tm_${txid}`, undefined, f, f);
     expect(r).toEqual({ answer: ADMITTED, via: "lookup", topics: [`tm_${txid}`] });
     expect(sent.map((s) => s.url)).toEqual([`${base}/lookup`, `${base}/submit`]);
-    expect(JSON.parse(sent[0]!.body as string)).toEqual({ service: "ls_mandala_deploys", query: { tokenId: txid } });
+    expect(JSON.parse(sent[0]!.body as string)).toEqual({ service: "ls_mandala_deploys", query: { tokenId: `${txid}_0` } });
     expect(sent[1]!.headers["x-topics"]).toBe(`tm_${txid}`);
     expect(Array.from(sent[1]!.body as Uint8Array)).toEqual(beef);
   });

@@ -34,20 +34,17 @@ characters in display order.
   Its binary outputs carry the 36-byte id, the only tokens that have one.
 - `tm_<txid>_0` is not a topic name and is never produced.
 
-**Token ids** (`src/name.zig` `tokenIdOfString`, `tokenIdText`; `src/token.zig`
-`originOf`; BRC-162 "Token identification"). A token id is the deploy
-outpoint, and how it is written depends on the token's origin, which is the form of its deploy:
-
-- a token that originated as **Mandala** (a binary deploy, always at output
-  0) is written as the bare `<txid>`;
-- a token that originated as **BSV-21** (a BRC-161 JSON deploy) is written
-  `<txid>_<vout>`, and `<txid>_0` for one deployed at output 0.
+**Token ids** (`src/name.zig` `tokenIdOfString`, `tokenIdText`). A token id
+is the deploy outpoint, written `<txid>_<vout>` for every token, Mandala and
+legacy BSV-21 alike, `_0` included; the bare 32-byte txid is the wire form
+only (David, 2026-10-07, shruggr/skein#120; BRC-162 "Token identification":
+"For display and APIs, the string form is `<txid>_<vout>` … for a 32-byte
+id, appends `_0`"). 0.3.1 to 0.8.0 wrote a Mandala token as the bare
+`<txid>`. Topic names are unchanged.
 
 Input takes any form: `<txid>`, `<txid>_<vout>` or the BRC-36
 `<txid>.<vout>`. `<txid>`, `<txid>_0` and `<txid>.0` all name the
-token at output 0, whatever its origin. Output prints the origin's form. The
-origin is known only from the deploy output. The topic and its name do
-not record it.
+token at output 0, whatever the form of its deploy.
 
 **The rule** (`src/bsv21.zig`, `src/token.zig`): BRC-162 and BRC-161
 "Validation rules" for the topic's token, over the transaction and the
@@ -74,8 +71,8 @@ exactly when the rules admit it. There is no ownership, authority-chain or
 control check.
 
 **Metadata and documentation** (skein-overlay#2): the topic's name, a
-one-line description naming the token (a token at output 0 by its deploy
-txid, since the topic does not know its origin), version 0.4.0; the documentation is
+one-line description naming the token by its id `<txid>_<vout>`
+(`<txid>_0` at output 0), version 0.4.0; the documentation is
 the rule above in markdown.
 
 ## The lookup
@@ -99,9 +96,8 @@ key present, in this order, answers:
   ts-stack sort).
 - The answer is an output-list of outpoints, with no token id strings. The
   engine builds each output's BEEF from the chain state, and the service never
-  handles one. A client that writes the token's id reads the origin from
-  the deploy output (`ls_mandala_deploys`, or the authorities answer): a
-  binary deploy is `<txid>`, a JSON one `<txid>_<vout>`.
+  handles one. A client writes the token's id `<txid>_<vout>` (`<txid>_0`
+  at output 0) whatever the form of its deploy.
 
 **The index** is three maps under the head `<app>/ls_mandala`, kept by the
 lookup hooks the engine calls in the step that admits or rejects:
@@ -167,8 +163,8 @@ runs as the route's filter over the current state and answers `{answer:
   [{tokenId, topic, sym, dec, icon?, txid, vout}]
   ```
 
-  `tokenId` in its origin's form (`<txid>` for a binary deploy, `<txid>_<vout>`
-  for a BRC-161 one), `topic` the token's (`tm_<txid>` or
+  `tokenId` `<txid>_<vout>` (`<txid>_0` at output 0, a binary deploy's or a
+  BRC-161 one's alike), `topic` the token's (`tm_<txid>` or
   `tm_<txid>_<vout>`), `txid` / `vout` the deploy outpoint. `sym`, `dec`
   and `icon` are the deploy's display fields: a BRC-161 deploy's JSON
   `sym`, `dec`, `icon`; a BRC-162 deploy's payload, a DAG-CBOR map read by

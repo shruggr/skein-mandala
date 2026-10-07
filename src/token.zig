@@ -36,19 +36,6 @@ pub fn deployOf(a: std.mem.Allocator, txid: [32]u8, vout: u32, script: []const u
     return if (t.role == .deploy) id else null;
 }
 
-/// The origin of the token whose deploy output `vout` of `txid` is (the form of its deploy:
-/// binary is `mandala`, a BRC-161 JSON inscription `bsv21`), or null when that output is not a
-/// valid deploy. It decides how the token id is written (name.zig `tokenIdText`).
-pub fn originOf(a: std.mem.Allocator, txid: [32]u8, vout: u32, script: []const u8) error{OutOfMemory}!?name.Origin {
-    const id: bsv21.TokenId = .{ .txid = txid, .vout = vout, .kind = if (vout == 0) .native else .legacy };
-    const t = (try bsv21.tokenOf(a, id, txid, vout, script)) orelse return null;
-    if (t.role != .deploy) return null;
-    return switch (t.form) {
-        .binary => .mandala,
-        .json => .bsv21,
-    };
-}
-
 /// The discovery topic's verdict (`tm_mandala`): every output that is a valid deploy of
 /// any token, nothing else; the coins it spends retained (a registry keeps what it admitted).
 pub fn judgeDeploys(a: std.mem.Allocator, tx: bsv21.Tx, previous_coins: []const u32) !Verdict {

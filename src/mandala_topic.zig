@@ -58,9 +58,9 @@ pub fn metadata(a: Allocator, t: []const u8) anyerror!topic.Metadata {
     var r = id.txid;
     std.mem.reverse(u8, &r);
     return .{
-        // The topic does not record the token's origin, so a token at output 0 is named by its deploy.
+        // The token by its id string, `<txid>_<vout>` (`_0` included; BRC-162 "Token identification").
         .short_description = if (id.vout == 0)
-            try std.fmt.allocPrint(a, "Mandala token deployed at output 0 of {s} (BRC-162): its outputs as the token rules allow.", .{&std.fmt.bytesToHex(r, .lower)})
+            try std.fmt.allocPrint(a, "Mandala token {s}_0 (BRC-162): its outputs as the token rules allow.", .{&std.fmt.bytesToHex(r, .lower)})
         else
             try std.fmt.allocPrint(a, "Mandala token {s}_{d} (BRC-162, deployed under BRC-161): its outputs as the token rules allow.", .{ &std.fmt.bytesToHex(r, .lower), id.vout }),
         .version = version,
@@ -80,9 +80,9 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\
     \\It admits an output that is a valid deploy and nothing else:
     \\
-    \\- a BRC-162 deploy (id `OP_0`) at output 0: the token `<txid>`;
+    \\- a BRC-162 deploy (id `OP_0`) at output 0: the token `<txid>_0`;
     \\- a BRC-161 `deploy+mint` or `deploy+auth` inscription at any output: the token
-    \\  `<txid>_<vout>` (`<txid>_0` at output 0).
+    \\  `<txid>_<vout>`.
     \\
     \\No other rule and no governance. It is served while registered with the overlay
     \\engine (`register {topic: "tm_mandala", program: "mandala-topic"}`).
@@ -92,10 +92,11 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\# Mandala token topic (tm_<txid>)
     \\
     \\One topic per Mandala token (BRC-162): `tm_<txid>` for a token deployed at output 0,
-    \\under BRC-162 (its id `<txid>`) or BRC-161 (its id `<txid>_0`); `tm_<txid>_<vout>` for
-    \\a token deployed under BRC-161 (JSON) at output `<vout>`, its id `<txid>_<vout>`, with
-    \\its one-way migration to the binary form. `<txid>` is the deploy txid, 64 lowercase
-    \\hex characters in display order.
+    \\under BRC-162 or BRC-161 (its id `<txid>_0`); `tm_<txid>_<vout>` for a token deployed
+    \\under BRC-161 (JSON) at output `<vout>`, its id `<txid>_<vout>`, with its one-way
+    \\migration to the binary form. `<txid>` is the deploy txid, 64 lowercase hex characters
+    \\in display order. A token id is `<txid>_<vout>` for every token, `_0` included (BRC-162
+    \\"Token identification"); the bare 32-byte txid is its wire form only.
     \\
     \\It admits every output of the token that the BSV-21 rules allow, and nothing else:
     \\

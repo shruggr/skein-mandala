@@ -14,7 +14,9 @@
 //! taken as `<txid>`, `<txid>_<vout>` or `<txid>.<vout>` (name.zig
 //! `tokenIdOfString`): `<txid>` and `<txid>_0` are the token deployed at
 //! output 0 (either form), a non-zero vout the deploy outpoint of a BRC-161
-//! one. Answers are output-lists (outpoints, no token id strings); the engine
+//! one. A token id is written `<txid>_<vout>` for every token, `_0` included
+//! (BRC-162 "Token identification"; David, 2026-10-07): the bare txid is the
+//! wire form only. Answers are output-lists (outpoints, no token id strings); the engine
 //! builds each output's BEEF from the chain state.
 //!
 //! The maps (`tok` = the token's deploy txid in display order ‖ vout, u32 BE;
@@ -292,9 +294,9 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     \\Indexes the deploy outputs `tm_mandala` admits, by token id.
     \\
     \\- `{ tokenId }`: the token's deploy output, with the metadata it was deployed with in
-    \\  its script. The deploy's form is the token's origin: a binary deploy is a Mandala
-    \\  token, written `<txid>`; a BRC-161 JSON deploy a BSV-21 token, written
-    \\  `<txid>_<vout>` (`<txid>_0` at output 0). An output-list of one, or empty when the deploy was not admitted.
+    \\  its script. The token id is `<txid>_<vout>` (`<txid>_0` at output 0), a binary
+    \\  deploy's or a BRC-161 JSON deploy's alike; `<txid>` and `<txid>.<vout>` are taken too.
+    \\  An output-list of one, or empty when the deploy was not admitted.
     \\
     \\A deploy stays listed once it is spent. Any other key is refused.
     \\
@@ -304,9 +306,9 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     \\
     \\Indexes the outputs the Mandala token topics (`tm_<txid>`) admit, by token id and
     \\outpoint. A token id is the deploy outpoint, the txid in display byte order,
-    \\lowercase. A token that originated as Mandala (a binary deploy, always output 0) is
-    \\written `<txid>`; one that originated as BSV-21 (a BRC-161 JSON deploy) `<txid>_<vout>`,
-    \\`<txid>_0` included. A query takes any of `<txid>`, `<txid>_<vout>`, `<txid>.<vout>`.
+    \\lowercase, written `<txid>_<vout>` for every token, `<txid>_0` included (BRC-162 "Token
+    \\identification": the bare 32-byte txid is the wire form only). A query takes any of
+    \\`<txid>`, `<txid>_<vout>`, `<txid>.<vout>`.
     \\
     \\## Queries
     \\
@@ -362,7 +364,7 @@ pub fn parseTokensQuery(a: Allocator, query: []const u8, body: []const u8) !Toke
     return q;
 }
 
-/// One token on the list: its id in its origin's form, its topic, the deploy's display fields
+/// One token on the list: its id `<txid>_<vout>` (`_0` included), its topic, the deploy's display fields
 /// (`sym` "" and `dec` 0 when the deploy carries none), its icon as an outpoint `<txid>_<vout>` (a
 /// BRC-162 icon by output index is that output of the deploy transaction), the deploy outpoint.
 pub const Listed = struct {
@@ -413,7 +415,7 @@ fn listedOf(a: Allocator, s: c.store.Store, key: []const u8) !?Listed {
     var tb: [mandala.name.max_suffix_len]u8 = undefined;
     var nb: [mandala.name.max_topic_len]u8 = undefined;
     var out: Listed = .{
-        .tokenId = try a.dupe(u8, mandala.name.tokenIdText(&tb, nid, if (t.form == .binary) .mandala else .bsv21)),
+        .tokenId = try a.dupe(u8, mandala.name.tokenIdText(&tb, nid)),
         .topic = try a.dupe(u8, mandala.name.topicName(&nb, nid)),
         .sym = "",
         .dec = 0,
