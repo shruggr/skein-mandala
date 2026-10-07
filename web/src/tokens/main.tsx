@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@1sat/react";
 import { mount } from "../shell";
+import { Id, Ids } from "../Id";
 import { whereOf } from "../where";
 import { Instance } from "./instance";
 import { appBaseOf, authFetchOf, submitDeployToTopic, submitWalletDeploy, type Submitted } from "../overlay";
@@ -120,7 +121,7 @@ function TokensPage() {
       <h1>Tokens on this overlay</h1>
       <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is the owner's: a message from your wallet to the box <code>{where.app}/register</code> of <code>{where.base}</code>.</p>
       {status !== "connected" && <p className="mut">Connect the owner's wallet.</p>}
-      {readErr && <p className="status bad">The list: {readErr}</p>}
+      {readErr && <p className="status bad">The list: <Ids text={readErr} /></p>}
       {inst && (
         <>
           <div className="card">
@@ -139,7 +140,7 @@ function TokensPage() {
                 <tbody>
                   {tokenTopics.map((t) => (
                     <tr key={t}>
-                      <td><code>{t}</code></td>
+                      <td><Id value={t} /></td>
                       <td>
                         <button type="button" disabled={!!busy} onClick={() => void resubmit(t)} title="The token's deploy, from the discovery lookup or your wallet, submitted under this topic">{busy === `submit:${t}` ? "Submitting…" : "Submit deploy to this overlay"}</button>{" "}
                         <button type="button" disabled={!!busy} onClick={() => void run(t, deregister(t))}>{busy === t ? "Deregistering…" : "Deregister"}</button>
@@ -170,7 +171,7 @@ function TokensPage() {
             </label>
           </div>
           {busy && <p className="status wait">{busy.startsWith("submit:") || busy.endsWith(":submit") ? "Submitting the deploy…" : "Sent; waiting for the answer…"}</p>}
-          {note && <p className={`status ${note.ok ? "ok" : "bad"}`}>{note.text}</p>}
+          {note && <p className={`status ${note.ok ? "ok" : "bad"}`}><Ids text={note.text} /></p>}
         </>
       )}
     </>

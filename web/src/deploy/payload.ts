@@ -15,7 +15,7 @@ export interface DeployForm {
   supply: "fixed" | "authority";
   /** Text as typed, in whole units (`decimals` places allowed); fixed supply only. */
   amount: string;
-  /** Text as typed: an outpoint `txid_vout` (or `txid.vout`), or empty. */
+  /** Text as typed: an outpoint `txid.vout` (or `txid_vout`), or empty. */
   icon: string;
 }
 
@@ -29,10 +29,15 @@ export function baseUnits(text: string, decimals: number): bigint {
   return BigInt(m[1]! + frac.padEnd(decimals, "0"));
 }
 
-/** An outpoint as the Mandala payload takes it: `txid_vout`, txid lowercase. */
+/**
+ * An outpoint, typed `txid.vout` or `txid_vout`, as @1sat/templates'
+ * `Mandala` deploy payload takes it: `txid_vout`, txid lowercase (its
+ * `outpointBytes` parses the underscore form only, 0.0.43). The pages show
+ * outpoints as `txid.vout` (David, 2026-10-08).
+ */
 export function outpointOf(text: string): string {
   const m = /^([0-9a-fA-F]{64})[_.](0|[1-9]\d*)$/.exec(text.trim());
-  if (!m || Number(m[2]) > 0xffffffff) throw new Error("icon: an outpoint, <txid>_<vout>");
+  if (!m || Number(m[2]) > 0xffffffff) throw new Error("icon: an outpoint, <txid>.<vout>");
   return `${m[1]!.toLowerCase()}_${m[2]}`;
 }
 

@@ -17,6 +17,7 @@ import { whereOf } from "../where";
 import { DISCOVERY, appBaseOf, signedFetch, submitBeef } from "../overlay";
 import type { WalletInterface } from "@bsv/sdk";
 import { deployInput, namesOf, type DeployForm } from "./payload";
+import { Id, Ids } from "../Id";
 
 type Done = { txid: string; tx?: number[]; error?: string; submitted?: string; submitErr?: string };
 
@@ -85,32 +86,32 @@ function DeployPage() {
         {f.supply === "fixed" && (
           <label>Amount, in whole tokens{Number(f.decimals) > 0 ? ` (up to ${f.decimals} decimal places)` : ""}<input type="text" inputMode="decimal" value={f.amount} onChange={set("amount")} /></label>
         )}
-        <label>Icon (optional): an outpoint holding the image, <code>txid_vout</code><input type="text" value={f.icon} onChange={set("icon")} /></label>
+        <label>Icon (optional): an outpoint holding the image, <code>txid.vout</code><input type="text" value={f.icon} onChange={set("icon")} /></label>
         <div className="row">
           <button type="button" className="go" disabled={status !== "connected" || busy || problem !== ""} onClick={deploy}>{busy ? "Deploying…" : "Deploy"}</button>
           {status !== "connected" ? <span className="mut small">Connect a wallet first.</span> : problem ? <span className="mut small">{problem}</span> : null}
         </div>
-        {err && <p className="status bad">{err}</p>}
+        {err && <p className="status bad"><Ids text={err} /></p>}
       </div>
       {done && names && (
         <div className="card">
           <h2>Deployed</h2>
           <table><tbody>
-            <tr><th>transaction</th><td><code>{done.txid}</code></td></tr>
-            <tr><th>token id</th><td><code>{names.tokenId}</code></td></tr>
-            <tr><th>topic to register</th><td><code>{names.topic}</code></td></tr>
+            <tr><th>transaction</th><td><Id value={done.txid} /></td></tr>
+            <tr><th>token id</th><td><Id value={names.tokenId} /></td></tr>
+            <tr><th>topic to register</th><td><Id value={names.topic} /></td></tr>
           </tbody></table>
           {done.error ? (
-            <p className="status bad">Broadcast, not filed in your wallet: {done.error} <button type="button" disabled={busy} onClick={refile}>File it again</button></p>
+            <p className="status bad">Broadcast, not filed in your wallet: <Ids text={done.error} /> <button type="button" disabled={busy} onClick={refile}>File it again</button></p>
           ) : (
-            <p className="ok small">In your wallet: basket <code>mandala {done.txid} 0</code>.</p>
+            <p className="ok small">In your wallet: basket <Id value={`mandala ${done.txid} 0`} />.</p>
           )}
           {done.submitted ? (
-            <p className="ok small">Submitted to this overlay under <code>{DISCOVERY}</code>: {done.submitted}. The discovery topic has the deploy once admitted (lookup <code>ls_mandala_deploys</code>); if this overlay does not serve <code>{DISCOVERY}</code>, nothing admits it.</p>
+            <p className="ok small">Submitted to this overlay under <code>{DISCOVERY}</code>: <Ids text={done.submitted} />. The discovery topic has the deploy once admitted (lookup <code>ls_mandala_deploys</code>); if this overlay does not serve <code>{DISCOVERY}</code>, nothing admits it.</p>
           ) : done.submitErr ? (
-            <p className="status bad">Not submitted to this overlay: {done.submitErr} <button type="button" disabled={busy} onClick={resubmit}>Submit again</button></p>
+            <p className="status bad">Not submitted to this overlay: <Ids text={done.submitErr} /> <button type="button" disabled={busy} onClick={resubmit}>Submit again</button></p>
           ) : null}
-          <p className="mut small">An overlay serves the token once its owner registers the topic <code>{names.topic}</code> (<a href="../tokens/">Tokens on this overlay</a>).</p>
+          <p className="mut small">An overlay serves the token once its owner registers the topic <Id value={names.topic} /> (<a href="../tokens/">Tokens on this overlay</a>).</p>
         </div>
       )}
     </>

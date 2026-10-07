@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import { idParts, shortId } from "../src/Id";
+
+const txid = "ab".repeat(30) + "cdef";
+
+describe("ids (David 2026-10-08: expandable, copyable)", () => {
+  it("shortens each txid in a value, keeping its prefix and vout", () => {
+    expect(shortId(txid)).toBe("abababab…ababcdef");
+    expect(shortId(`tm_${txid}_2`)).toBe("tm_abababab…ababcdef_2");
+    expect(shortId(`${txid}.1`)).toBe("abababab…ababcdef.1");
+    expect(shortId("tm_mandala")).toBe("tm_mandala");
+  });
+  it("finds the ids in a status line: txids, topics, outpoints, legacy token ids", () => {
+    const line = `tm_${txid}: registered (seeded: ${txid}.0, ${txid}_3; missing: none).`;
+    expect(idParts(line)).toEqual([
+      { id: true, text: `tm_${txid}` },
+      { id: false, text: ": registered (seeded: " },
+      { id: true, text: `${txid}.0` },
+      { id: false, text: ", " },
+      { id: true, text: `${txid}_3` },
+      { id: false, text: "; missing: none)." },
+    ]);
+  });
+  it("leaves other hex alone (a 66-character key) and text with no id", () => {
+    expect(idParts(`key 02${txid}`)).toEqual([{ id: false, text: `key 02${txid}` }]);
+    expect(idParts("taken by no topic")).toEqual([{ id: false, text: "taken by no topic" }]);
+  });
+});
