@@ -1394,6 +1394,35 @@ test "tokens: every deploy tm_mandala admitted, its id by origin, topic, sym, de
     if (o.get("icon")) |ic| try testing.expect(ic == .string);
     const bad: Value = .{ .map = &.{.{ .key = "body", .value = .{ .bytes = "{\"limit\":0}" } }} };
     try testing.expectEqual(@as(u64, 400), (try ls.tokensRoute(a, s, l.state, null, bad)).getUint("status").?);
+
+    // Called as a read route's filter (shruggr/skein#143, the input's `filter: true`): {answer: <the http answer>}.
+    try testing.expect(ls.isFilter(.{ .map = &.{.{ .key = "filter", .value = .{ .boolean = true } }} }));
+    try testing.expect(!ls.isFilter(.{ .map = &.{.{ .key = "fn", .value = text("tokens") }} }));
+    const fa = try ls.asFilterAnswer(a, r);
+    try testing.expectEqual(@as(usize, 1), fa.map.len);
+    try testing.expectEqual(@as(u64, 200), fa.get("answer").?.getUint("status").?);
+}
+
+test "the manifest (shruggr/skein#143): routes, filters and roles; no dispatch, reads or senders" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const j = (try std.json.parseFromSliceLeaky(std.json.Value, a, @embedFile("etc/app.json"), .{})).object;
+    try testing.expect(j.get("dispatch") == null and j.get("reads") == null);
+    const gated = j.get("roles").?.object.get("root").?.array.items;
+    try testing.expectEqual(@as(usize, 3), gated.len);
+    try testing.expectEqualStrings("mandala-lookup.tokens", j.get("filters").?.object.get("tokens").?.string);
+    var tokens_read = false;
+    var register = false;
+    for (j.get("routes").?.array.items) |r| {
+        try testing.expect(r.object.get("sender") == null and r.object.get("program") == null);
+        const addr = r.object.get("address").?.string;
+        if (std.mem.eql(u8, addr, "/mandala/tokens")) {
+            tokens_read = r.object.get("handler") == null and std.mem.eql(u8, r.object.get("filters").?.array.items[0].string, "tokens");
+        }
+        if (std.mem.eql(u8, addr, "register")) register = std.mem.eql(u8, r.object.get("handler").?.string, "overlay.register");
+    }
+    try testing.expect(tokens_read and register);
 }
 
 test "tokens: newest first by the chain — unmined first, then the higher block, then the later position" {

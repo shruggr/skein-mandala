@@ -491,7 +491,8 @@ pub fn tokensRoute(a: Allocator, s: c.store.Store, deploys_state: ?[]const u8, c
     return respond(a, 200, w.written());
 }
 
-/// The app a read's call names: the read's `app` (the install's), else its program record's, else "mandala".
+/// The app a read's call names: the read route's `app` (the install's; a read route names no program,
+/// shruggr/skein#143), else its program record's, else "mandala".
 fn appOfRead(a: Allocator, s: c.store.Store, req: Value) ![]const u8 {
     const m = req.get("match") orelse return "mandala";
     if (m.getText("app")) |x| return x;
@@ -512,7 +513,20 @@ fn run(a: Allocator) anyerror!void {
     const s = sk.store();
     const app = try appOfRead(a, s, req);
     const deploys = try sk.head(a, try lookup.headName(a, app, deploys_service));
-    try sk.answer(a, try tokensRoute(a, s, deploys, try sk.head(a, lookup.chain_head), req));
+    const out = try tokensRoute(a, s, deploys, try sk.head(a, lookup.chain_head), req);
+    // A read route's filter (shruggr/skein#143): the http answer as the filter's `{answer: …}`.
+    try sk.answer(a, if (isFilter(in)) try asFilterAnswer(a, out) else out);
+}
+
+/// Whether this call is a filter's: the input's `filter: true` (skein docs/APPS.md §2 "Filters").
+pub fn isFilter(in: Value) bool {
+    const f = in.get("filter") orelse return false;
+    return f == .boolean and f.boolean;
+}
+
+/// An http answer `{status, type, body}` as a filter's `{answer: {status, type, body}}`.
+pub fn asFilterAnswer(a: Allocator, http: Value) !Value {
+    return .{ .map = try a.dupe(c.cbor.Entry, &.{.{ .key = "answer", .value = http }}) };
 }
 
 /// A call: fn "tokens" (the token list, a read), else the lookup contract's (fn "lookup", the hooks,

@@ -1,5 +1,5 @@
 /**
- * The instance, read and written as its owner: skein-site's way
+ * The instance, read and written as root (shruggr/skein#143): skein-site's way
  * (shruggr/skein-site app.js, class `Skein`: `fetch`, `read`, `send`,
  * `threadOf`, and `identityAt`), over skein's own BRC-104 client `RawBox`
  * (skein src/client/raw.ts).
@@ -10,7 +10,7 @@
  *   wallet send (skein#124, docs/MESSAGES.md "The messagebox").
  * - The instance's identity is the key its signed answers carry
  *   (`x-bsv-auth-identity-key`).
- * - Reads are the explorer (`/explore…`, the owner's read): a head
+ * - Reads are the explorer (`/explore…`, gated by root): a head
  *   (`/explore/head/<name>`), a record (`/explore/record/<cid>`), and the
  *   answer to a message from the thread it launched
  *   (`/explore/edges/<message>?rel=launched-by`, then `/explore/thread/<origin>`
@@ -23,7 +23,7 @@ import { RawBox } from "skein/src/client/raw.ts";
 
 export class ReadError extends Error {
   constructor(readonly status: number, text: string) {
-    super(status === 403 ? "your key may not read this skein: its explorer is its owner's" : `HTTP ${status} ${text}`);
+    super(status === 403 ? "your key may not read this skein: its explorer is root's" : `HTTP ${status} ${text}`);
   }
 }
 

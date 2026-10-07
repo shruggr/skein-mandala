@@ -61,7 +61,7 @@ export function deployInput(f: DeployForm): DeployMandalaInput {
 /**
  * The names a Mandala deploy gives the token: its id, written in the origin's
  * form (a token that originated as Mandala is the bare `<txid>`; BRC-162
- * "Token identification"), and the overlay topic the owner activates.
+ * "Token identification"), and the overlay topic root activates.
  */
 export function namesOf(txid: string): { tokenId: string; topic: string } {
   const t = txid.toLowerCase();

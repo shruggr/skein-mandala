@@ -1,8 +1,10 @@
 /**
- * The tokens this overlay serves: the owner's page. Reads the overlay
- * engine's registered topics (the head `<app>/topics`, through the explorer,
- * the owner's read), and changes them by the owner's `register` /
- * `deregister` messages to the app's box `<app>/register` (skein-overlay 0.7.7+).
+ * The tokens this overlay serves: root's page (the key holding root on the
+ * instance, shruggr/skein#143). Reads the overlay engine's registered topics
+ * (the head `<app>/topics`, through the explorer, root's read), and changes
+ * them by root's `register` / `deregister` messages to the app's box
+ * `<app>/register` (skein-overlay 0.7.7+; the route's handler
+ * `overlay.register` is gated by root, skein-overlay 0.10.0).
  * A token's register seeds its topic with the token's deploy (skein-overlay
  * 0.7.8, `seed: [<deploy txid>]`): the engine judges it from what the
  * instance's chain state holds, and the answer says `seeded` or `missing`.
@@ -13,7 +15,7 @@
  * instance's BRC-104 client; the submit is a plain `fetch`, unsigned
  * (shruggr/skein#135).
  *
- * The two switches, Market and Validator (skein-overlay 0.9.2): the owner's
+ * The two switches, Market and Validator (skein-overlay 0.9.2): root's
  * `market` / `validator` message to the same box `<app>/register`, as register
  * is sent; the answer is the roles in effect. Read from the set's record
  * (the switch, once sent) over the app record's `config.overlay`.
@@ -90,7 +92,7 @@ function TokensPage() {
     await load();
   }
 
-  /** The owner's switch of a role (skein-overlay 0.9.2): the answer is the roles in effect. */
+  /** Root's switch of a role (skein-overlay 0.9.2): the answer is the roles in effect. */
   async function switchRole(role: Role, on: boolean) {
     if (!inst || !where) return;
     setBusy(role); setNote(undefined);
@@ -120,8 +122,8 @@ function TokensPage() {
   return (
     <>
       <h1>Tokens on this overlay</h1>
-      <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is the owner's: a message from your wallet to the box <code>{where.app}/register</code> of <code>{where.base}</code>.</p>
-      {status !== "connected" && <p className="mut">Connect the owner's wallet.</p>}
+      <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is root's (the key that claimed the instance, or one root granted): a message from your wallet to the box <code>{where.app}/register</code> of <code>{where.base}</code>.</p>
+      {status !== "connected" && <p className="mut">Connect the wallet holding root on this skein.</p>}
       {readErr && <p className="status bad">The list: <Ids text={readErr} /></p>}
       {inst && (
         <>

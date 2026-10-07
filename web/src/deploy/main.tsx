@@ -72,7 +72,7 @@ function DeployPage() {
   return (
     <>
       <h1>Deploy a token</h1>
-      <p className="mut small">A Mandala (BRC-162) token, made by your wallet: the deploy is output 0 of a transaction your wallet signs and broadcasts, and the token's id is that output. The page then submits the deploy to this overlay's discovery topic <code>{DISCOVERY}</code>; the overlay serves the token itself once its owner registers the token's topic.</p>
+      <p className="mut small">A Mandala (BRC-162) token, made by your wallet: the deploy is output 0 of a transaction your wallet signs and broadcasts, and the token's id is that output. The page then submits the deploy to this overlay's discovery topic <code>{DISCOVERY}</code>; the overlay serves the token itself once its root registers the token's topic.</p>
       <div className="card">
         <label>Symbol<input type="text" value={f.symbol} onChange={set("symbol")} placeholder="TOKEN" /></label>
         <label>Decimals (0 to 18)<input type="text" inputMode="numeric" value={f.decimals} onChange={set("decimals")} /></label>
@@ -110,7 +110,7 @@ function DeployPage() {
           ) : done.submitErr ? (
             <p className="status bad">Not submitted to this overlay: <Ids text={done.submitErr} /> <button type="button" disabled={busy} onClick={resubmit}>Submit again</button></p>
           ) : null}
-          <p className="mut small">An overlay serves the token once its owner registers the topic <Id value={names.topic} /> (<a href="../tokens/">Tokens on this overlay</a>).</p>
+          <p className="mut small">An overlay serves the token once its root registers the topic <Id value={names.topic} /> (<a href="../tokens/">Tokens on this overlay</a>).</p>
         </div>
       )}
     </>

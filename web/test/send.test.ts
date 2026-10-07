@@ -1,4 +1,4 @@
-// The request the owner's message is: skein's RawBox.send, its body as the
+// The request root's message is: skein's RawBox.send, its body as the
 // front door reads it (BRC-231 CBOR {message: {recipient, messageBox, body}}),
 // captured below the BRC-104 layer by stubbing the session.
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { PrivateKey, ProtoWallet, type WalletInterface } from "@bsv/sdk";
 import { Instance } from "../src/tokens/instance";
 import { register } from "../src/tokens/list";
 
-describe("the owner's message", () => {
+describe("root's message", () => {
   it("POST <base>/sendMessage to the app's box, the call as the body", async () => {
     const wallet = new ProtoWallet(PrivateKey.fromHex("02".repeat(32))) as unknown as WalletInterface;
     const inst = new Instance(wallet, "http://127.0.0.1:8100/@alice");

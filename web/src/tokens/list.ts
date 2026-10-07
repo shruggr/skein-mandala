@@ -106,7 +106,7 @@ export function answerOf(v: unknown): Answer {
 }
 
 /**
- * The engine's two roles, the owner's switch (skein-overlay 0.9.2; David,
+ * The engine's two roles, root's switch (skein-overlay 0.9.2; David,
  * 2026-10-07: "this shouldn't have been a config in the manifest. This
  * should be a setting that the user is configuring"). Sent where register
  * is, `<app>/register`: `{fn: "market", args: {window} | {off: true}}`,

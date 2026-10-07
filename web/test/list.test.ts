@@ -3,7 +3,7 @@ import { DISCOVERY, answerOf, deployTxidOf, deregister, discovery, register, rol
 
 const txid = "cd".repeat(32);
 
-describe("the owner's calls: the engine's register / deregister", () => {
+describe("root's calls: the engine's register / deregister", () => {
   it("register a token's topic, judged by mandala-topic, seeded with its deploy (skein-overlay 0.7.8)", () => {
     expect(register(` tm_${txid} `)).toEqual({ fn: "register", args: { topic: `tm_${txid}`, program: "mandala-topic", seed: [txid] } });
     expect(register(`tm_${txid}_2`)).toEqual({ fn: "register", args: { topic: `tm_${txid}_2`, program: "mandala-topic", seed: [txid] } });
@@ -47,7 +47,7 @@ describe("the registered set and the answers", () => {
   });
 });
 
-describe("the owner's switch: market and validator (skein-overlay 0.9.2)", () => {
+describe("root's switch: market and validator (skein-overlay 0.9.2)", () => {
   it("on with its ms, or off", () => {
     expect(roleSwitch("market", true)).toEqual({ fn: "market", args: { window: 40_000 } });
     expect(roleSwitch("market", true, 60_000)).toEqual({ fn: "market", args: { window: 60_000 } });

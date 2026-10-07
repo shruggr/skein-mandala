@@ -3,7 +3,7 @@
   "version": "0.6.2",
   "private": true,
   "type": "module",
-  "description": "Mandala's pages (deploy a token; the owner's registered token topics), built into ../www for an embedding app to serve under /<app>/mandala/. See ../README.md, \"Pages\".",
+  "description": "Mandala's pages (deploy a token; root's registered token topics), built into ../www for an embedding app to serve under /<app>/mandala/. See ../README.md, \"Pages\".",
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",

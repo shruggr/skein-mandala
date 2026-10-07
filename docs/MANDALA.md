@@ -1,7 +1,7 @@
 # Mandala on a skein
 
 Mandala tokens (BRC-162) served by a skein overlay: one topic per token, a
-lookup service over the topics, and the topics the owner registers live.
+lookup service over the topics, and the topics root registers live.
 Decided in shruggr/skein#120 (walkthrough 2026-10-05): components, not one
 app; one topic per token; the protocol first; governance later, per token.
 
@@ -13,7 +13,7 @@ app; one topic per token; the protocol first; governance later, per token.
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output; fn `tokens`: the token list, a read (0.7.0) |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.9.2: serves the topics, keeps the registered set (`register` / `deregister`) |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.10.0: serves the topics, keeps the registered set (`register` / `deregister`) |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -149,10 +149,11 @@ decimals, symbol, icon, ...).
 
 Decided (shruggr/skein#120, 2026-10-06): the token list is a read function
 of the Mandala components, not a BRC-24 query. `mandala-lookup`'s fn
-`tokens`, served by the read `/<app>/mandala/tokens` (the manifest's
-`reads[]`: `{"address": "/mandala/tokens", "program": "mandala-lookup",
-"fn": "tokens"}`; a call over the current state: any method, signed or not,
-no entry, nothing logged).
+`tokens`, served by the read route `/<app>/mandala/tokens` (the manifest's
+`{"transport": "http", "address": "/mandala/tokens", "filters": ["tokens"]}`,
+`filters.tokens = "mandala-lookup.tokens"`, shruggr/skein#143: the function
+runs as the route's filter over the current state and answers `{answer:
+<the http answer>}`; any method, signed or not, no entry, nothing logged).
 
 - **Query**: `{limit?, skip?}`, in the query string
   (`?limit=20&skip=40`) or a JSON body (both: the body's win). `limit` is 1
@@ -189,18 +190,20 @@ no entry, nothing logged).
 
 ## Registering a topic
 
-The overlay serves only the topics the owner registered (#120 item 2; the
-call is the engine's, skein-overlay 0.6.0 (the owner's box `<app>/register`
+The overlay serves only the topics root registered (#120 item 2; the
+call is the engine's, skein-overlay 0.6.0 (root's box `<app>/register`
 since 0.7.7, `<app>/overlay` from 0.6.2), docs/OVERLAY.md "Register a topic"). The manifest declares no topics; there are no topic prefixes
-anywhere, in the configuration or in the rows.
+anywhere, in the configuration or in the routes.
 
-1. The owner sends `{fn: "register", args: {topic, program:
+1. Root sends `{fn: "register", args: {topic, program:
    "mandala-topic"}}` to the app's box `<app>/register`. The topic is
    `tm_<txid>`, `tm_<txid>_<vout>` or `tm_mandala`; it follows from
-   how the token was deployed (the deploy page shows it). The row
-   `{address: "register", sender: "$owner", program: "overlay"}` (relative;
-   the install resolves it to `<app>/register`, skein#128) takes it to the
-   engine.
+   how the token was deployed (the deploy page shows it). The route
+   `{address: "register", handler: "overlay.register"}` (relative; the
+   install resolves it to `<app>/register`, skein#128) takes it to the
+   engine; `roles: {root: ["register", "market", "validator"]}` gates it
+   (shruggr/skein#143: a message from a key without root is recorded and
+   runs nothing).
 2. The engine adds `{topic, program}` to its registered set, the head
    `<app>/topics` (`{kind: "overlay-topics", topics: [{topic, program}, …]}`,
    sorted, each once), and advances the head.
@@ -239,23 +242,23 @@ not remove what the topic admitted or the lookup's index of it.
 - `config.overlay`: no `topics`; `lookups` `ls_mandala` and
   `ls_mandala_deploys`, each `{"program": "mandala-lookup"}` with no
   `topics` list;
-- the rows (`dispatch[]`, messages): `{"address": "register", "sender": "$owner", "program":
-  "overlay"}` (the owner's `register` / `deregister`, box `<app>/register`),
-  `{"address": "submit", "sender": "*", "program": "overlay", "filter":
-  "beef"}` (the submission box `<app>/submit`: submissions by message and
-  from `POST /submit`, skein-overlay 0.7.6; no `""` row);
-- the reads (`reads[]`, shruggr/skein#135; 0.7.0, were four http rows
-  before): the engine's four listing and documentation paths,
-  `/listTopicManagers`, `/listLookupServiceProviders`,
-  `/getDocumentationForTopicManager`,
-  `/getDocumentationForLookupServiceProvider` (each `{address, program:
-  "overlay", fn}`, as in `etc/app.json`), and the token list
-  `/mandala/tokens` (`mandala-lookup`, fn `tokens`). A read is served by a
-  call, anyone, signed or not, nothing logged; a row is a message (an http
-  row takes a signed request, or an unsigned one its filter validates,
-  shruggr/skein#135: `/submit`'s, `beef`). `/lookup` (a read) and
-  `/submit` (an http row) are derived by the install from
-  `config.overlay`;
+- the routes, filters and roles (shruggr/skein#143; no senders): the
+  route `{"address": "register", "handler": "overlay.register"}` (root's
+  `register` / `deregister` and switches, box `<app>/register`; `roles:
+  {"root": ["register", "market", "validator"]}`), `{"address": "submit",
+  "filters": ["kernel.beef"], "handler": "overlay.submit"}` (the submission
+  box `<app>/submit`: submissions by message, anyone whose BEEF validates,
+  skein-overlay 0.7.6; no route of its own on `<app>`);
+- the read routes (an http route with no handler: its filters answer,
+  anyone, signed or not, nothing logged): the engine's four listing and
+  documentation paths, `/listTopicManagers`,
+  `/listLookupServiceProviders`, `/getDocumentationForTopicManager`,
+  `/getDocumentationForLookupServiceProvider` (each with its filter, the
+  engine's function, declared in `filters`), and the token list
+  `/mandala/tokens` (the filter `tokens`, `mandala-lookup.tokens`).
+  `/lookup` (a read route, the filter `lookup`) and `/submit` (`kernel.beef`
+  → `overlay.submit`) and the box `<app>` (event and mailbox routes) are
+  derived by the install from `config.overlay`;
 - `requires: ["chain/1"]`.
 
 A manifest MAY pre-declare topics in `config.overlay.topics` (an overlay
