@@ -9,8 +9,9 @@
  * Missing (the overlay never held the deploy), the page submits the wallet's
  * copy (src/overlay.ts `submitWalletDeploy`). "Submit deploy to this
  * overlay" submits the deploy on demand (`submitDeployToTopic`: the discovery
- * lookup's, else the wallet's). The lookup and the submit are POSTs, so they
- * go signed, through the instance's BRC-104 client.
+ * lookup's, else the wallet's). The lookup goes signed, through the
+ * instance's BRC-104 client; the submit is a plain `fetch`, unsigned
+ * (shruggr/skein#135).
  *
  * The two switches, Market and Validator (skein-overlay 0.9.2): the owner's
  * `market` / `validator` message to the same box `<app>/register`, as register
@@ -56,7 +57,7 @@ function TokensPage() {
     try {
       const f = authFetchOf(inst.box);
       const r: Submitted = walletOnly
-        ? await submitWalletDeploy(appBaseOf(where), t, wallet ?? undefined, f, "the overlay's chain state does not hold the deploy")
+        ? await submitWalletDeploy(appBaseOf(where), t, wallet ?? undefined, "the overlay's chain state does not hold the deploy")
         : await submitDeployToTopic(appBaseOf(where), t, wallet ?? undefined, f);
       const from = r.via === "lookup" ? "from the discovery lookup" : walletOnly ? "from your wallet" : "from your wallet (the discovery lookup had none)";
       return { ok: true, text: `${prefix}deploy submitted ${from} under ${r.topics.join(", ")}: ${r.answer}.` };

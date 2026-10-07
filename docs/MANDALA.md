@@ -252,8 +252,10 @@ not remove what the topic admitted or the lookup's index of it.
   "overlay", fn}`, as in `etc/app.json`), and the token list
   `/mandala/tokens` (`mandala-lookup`, fn `tokens`). A read is served by a
   call, anyone, signed or not, nothing logged; a row is a message (an http
-  row takes a signed request). `/lookup` (a read) and `/submit` (an http
-  row) are derived by the install from `config.overlay`;
+  row takes a signed request, or an unsigned one its filter validates,
+  shruggr/skein#135: `/submit`'s, `beef`). `/lookup` (a read) and
+  `/submit` (an http row) are derived by the install from
+  `config.overlay`;
 - `requires: ["chain/1"]`.
 
 A manifest MAY pre-declare topics in `config.overlay.topics` (an overlay

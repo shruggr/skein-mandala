@@ -5,8 +5,9 @@
  * `mandala <txid> 0`). The page then submits the deploy to the overlay it is
  * served from under the discovery topic only (`tm_mandala`): its own topic
  * `tm_<txid>` did not exist before this transaction, so nobody serves it yet.
- * The submit is a POST, so it goes signed: the connected wallet's BRC-104
- * client (a skein takes no unsigned POST).
+ * The submit is a plain `fetch`, unsigned: the skein admits an unsigned POST
+ * at the overlay's `submit` row, whose filter validates the BEEF
+ * (shruggr/skein#135).
  */
 import { useState } from "react";
 import { useWallet } from "@1sat/react";
@@ -14,8 +15,7 @@ import { createContext } from "@1sat-actions/types.js";
 import { deployMandala, fileMandalaDeploy } from "@1sat-actions/mandala/deploy.js";
 import { mount } from "../shell";
 import { whereOf } from "../where";
-import { DISCOVERY, appBaseOf, signedFetch, submitBeef } from "../overlay";
-import type { WalletInterface } from "@bsv/sdk";
+import { DISCOVERY, appBaseOf, submitBeef } from "../overlay";
 import { deployInput, namesOf, type DeployForm } from "./payload";
 import { Id, Ids } from "../Id";
 
@@ -23,12 +23,11 @@ type Done = { txid: string; tx?: number[]; error?: string; submitted?: string; s
 
 const where = whereOf(location.href);
 
-/** The deploy submitted to this overlay under the discovery topic: the answer (BRC-22's STEAK, in words), or the error. */
-async function submitDeploy(wallet: WalletInterface | null | undefined, tx: number[] | undefined): Promise<{ submitted?: string; submitErr?: string }> {
+/** The deploy submitted to this overlay under the discovery topic (plain fetch, unsigned): the answer (BRC-22's STEAK, in words), or the error. */
+async function submitDeploy(tx: number[] | undefined): Promise<{ submitted?: string; submitErr?: string }> {
   if (!where) return { submitErr: "this page's URL names no app, so no overlay to submit to" };
   if (!tx) return { submitErr: "the wallet returned no transaction to submit" };
-  if (!wallet) return { submitErr: "no wallet connected to sign the submit" };
-  try { return { submitted: await submitBeef(appBaseOf(where), tx, [DISCOVERY], signedFetch(wallet, where.base)) }; }
+  try { return { submitted: await submitBeef(appBaseOf(where), tx, [DISCOVERY]) }; }
   catch (e) { return { submitErr: (e as Error).message }; }
 }
 
@@ -48,7 +47,7 @@ function DeployPage() {
     setBusy(true); setErr(""); setDone(undefined);
     try {
       const r = await deployMandala.execute(createContext(wallet), deployInput(f));
-      if (r.txid) setDone({ txid: r.txid, tx: r.tx, error: r.error, ...(await submitDeploy(wallet, r.tx)) });
+      if (r.txid) setDone({ txid: r.txid, tx: r.tx, error: r.error, ...(await submitDeploy(r.tx)) });
       else setErr(r.error ?? "the wallet returned no transaction");
     } catch (e) { setErr((e as Error).message); }
     setBusy(false);
@@ -65,7 +64,7 @@ function DeployPage() {
   async function resubmit() {
     if (!done) return;
     setBusy(true);
-    setDone({ ...done, submitted: undefined, submitErr: undefined, ...(await submitDeploy(wallet, done.tx)) });
+    setDone({ ...done, submitted: undefined, submitErr: undefined, ...(await submitDeploy(done.tx)) });
     setBusy(false);
   }
 

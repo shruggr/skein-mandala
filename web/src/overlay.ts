@@ -1,10 +1,13 @@
 /**
  * The overlay the pages are served from, over its HTTP routes
- * (skein-overlay docs/OVERLAY.md "Submitting" and the routes table). A skein
- * takes no unsigned HTTP but GET/HEAD: a POST without a BRC-104 session is
- * 401. Every POST here goes through the connected wallet's BRC-104 client
- * (`signedFetch`, skein's `RawBox` AuthFetch); the `Fetch` parameter is there
- * for tests.
+ * (skein-overlay docs/OVERLAY.md "Submitting" and the routes table). The
+ * submit is a plain `fetch`, unsigned: the skein admits an unsigned POST at a
+ * row whose filter validates the payload (shruggr/skein#135), and the
+ * overlay's `submit` row is `sender "*", filter "beef"` (David 2026-10-08:
+ * "We shouldn't be using authfetch for the submit http method"; AuthFetch
+ * refuses the X-Topics header). The lookup goes through the connected
+ * wallet's BRC-104 client (`signedFetch`, skein's `RawBox` AuthFetch). The
+ * `Fetch` parameters are there for tests.
  *
  * - `POST <app base>/submit`: the BEEF as the body, `X-Topics` a comma list;
  *   BRC-22 (skein-overlay 0.9.1): the request waits and answers the STEAK
@@ -28,6 +31,9 @@ export const DEPLOYS_LOOKUP = "ls_mandala_deploys";
 
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
+/** The browser's own `fetch`, unsigned: the submit's. */
+export const plainFetch: Fetch = (url, init) => fetch(url, init);
+
 /**
  * The connected wallet's BRC-104 client to the instance at `base` (the
  * instance's place, `where.base`, not the app's): skein's `RawBox` AuthFetch,
@@ -50,9 +56,10 @@ export function appBaseOf(w: { base: string; app: string }): string {
 /**
  * Submit a BEEF under topics (BRC-22): the answer, in words — the topics that
  * admitted outputs (from the STEAK), "taken by no topic", or, on a 503, "not
- * decided yet". Any other status is an error.
+ * decided yet". Any other status is an error. Unsigned: plain `fetch` unless
+ * a test passes `f`.
  */
-export async function submitBeef(appBase: string, beef: ArrayLike<number>, topics: string[], f: Fetch): Promise<string> {
+export async function submitBeef(appBase: string, beef: ArrayLike<number>, topics: string[], f: Fetch = plainFetch): Promise<string> {
   const r = await f(`${appBase}/submit`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream", "x-topics": topics.join(",") },
@@ -112,28 +119,30 @@ export type Submitted = { answer: string; via: "lookup" | "wallet"; topics: stri
  * discovery lookup, submitted under the token's topic; if the lookup has none
  * (a token deployed before the deploy page submitted to discovery), the
  * wallet's copy, submitted under both the discovery topic and the token's.
+ * `f` is the lookup's (signed); the submit is plain `fetch` (`submitF`, for
+ * tests).
  */
-export async function submitDeployToTopic(appBase: string, topic: string, wallet: WalletInterface | undefined, f: Fetch): Promise<Submitted> {
+export async function submitDeployToTopic(appBase: string, topic: string, wallet: WalletInterface | undefined, f: Fetch, submitF: Fetch = plainFetch): Promise<Submitted> {
   const { tokenId } = tokenOfTopic(topic);
   const found = await lookupDeployBeef(appBase, tokenId, f);
   if (found) {
     const topics = [topic];
-    return { answer: await submitBeef(appBase, found, topics, f), via: "lookup", topics };
+    return { answer: await submitBeef(appBase, found, topics, submitF), via: "lookup", topics };
   }
-  return submitWalletDeploy(appBase, topic, wallet, f, `the discovery lookup has no deploy for ${tokenId}`);
+  return submitWalletDeploy(appBase, topic, wallet, `the discovery lookup has no deploy for ${tokenId}`, submitF);
 }
 
 /**
  * The wallet's copy of a token's deploy submitted under the discovery topic
  * and the token's: for a deploy the overlay never held (a register's seeding
  * answered it `missing`, skein-overlay 0.7.8). `why` begins the error when the
- * wallet cannot give it.
+ * wallet cannot give it. The submit is plain `fetch` (`submitF`, for tests).
  */
-export async function submitWalletDeploy(appBase: string, topic: string, wallet: WalletInterface | undefined, f: Fetch, why = "the overlay does not hold the deploy"): Promise<Submitted> {
+export async function submitWalletDeploy(appBase: string, topic: string, wallet: WalletInterface | undefined, why = "the overlay does not hold the deploy", submitF: Fetch = plainFetch): Promise<Submitted> {
   const { txid, vout } = tokenOfTopic(topic);
   if (!wallet) throw new Error(`${why}, and no wallet is connected to give it`);
   const beef = await walletDeployBeef(wallet, txid, vout);
   if (!beef) throw new Error(`${why}, and this wallet does not hold it (basket mandala ${txid} ${vout})`);
   const topics = [DISCOVERY, topic];
-  return { answer: await submitBeef(appBase, beef, topics, f), via: "wallet", topics };
+  return { answer: await submitBeef(appBase, beef, topics, submitF), via: "wallet", topics };
 }

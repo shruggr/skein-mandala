@@ -1,6 +1,6 @@
 .{
     .name = .skein_mandala,
-    .version = "0.7.4",
+    .version = "0.7.5",
     .minimum_zig_version = "0.16.0",
     .fingerprint = 0x443bbc82525b39fc,
     .dependencies = .{
