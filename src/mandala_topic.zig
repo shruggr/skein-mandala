@@ -1,7 +1,7 @@
 //! mandala-topic: the Mandala (BRC-162) topic manager, one topic per token
 //! (shruggr/skein#120).
 //!
-//! **The topic.** `tm_<txid>` for a token deployed at output 0 (BRC-162, or
+//! **The topic.** `tm_<tokenId>`: `tm_<txid>_0` for a token deployed at output 0 (BRC-162, or
 //! BRC-161 there: the same token), `tm_<txid>_<vout>` for a BRC-161 token
 //! deployed at a non-zero output (name.zig), and the discovery topic
 //! `tm_mandala`. `identify` (the skein-overlay topic contract,
@@ -89,9 +89,9 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\
     ;
     return
-    \\# Mandala token topic (tm_<txid>)
+    \\# Mandala token topic (tm_<txid>_<vout>)
     \\
-    \\One topic per Mandala token (BRC-162): `tm_<txid>` for a token deployed at output 0,
+    \\One topic per Mandala token (BRC-162), `tm_<tokenId>`: `tm_<txid>_0` for a token deployed at output 0,
     \\under BRC-162 or BRC-161 (its id `<txid>_0`); `tm_<txid>_<vout>` for a token deployed
     \\under BRC-161 (JSON) at output `<vout>`, its id `<txid>_<vout>`, with its one-way
     \\migration to the binary form. `<txid>` is the deploy txid, 64 lowercase hex characters
@@ -113,7 +113,7 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\control check: the protocol only.
     \\
     \\The overlay serves a token's topic once it is registered with the overlay engine
-    \\(`register {topic: "tm_<txid>", program: "mandala-topic"}`). The discovery topic `tm_mandala`
+    \\(`register {topic: "tm_<txid>_<vout>", program: "mandala-topic"}`). The discovery topic `tm_mandala`
     \\holds every token's deploy output.
     \\
     ;

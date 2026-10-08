@@ -122,7 +122,7 @@ function TokensPage() {
   return (
     <>
       <h1>Tokens on this overlay</h1>
-      <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is root's (the key that claimed the instance, or one root granted): a message from your wallet to the box <code>{where.app}/register</code> of <code>{where.base}</code>.</p>
+      <p className="mut small">The overlay serves only the topics registered with it: <code>tm_&lt;txid&gt;_&lt;vout&gt;</code>, the token's id after <code>tm_</code>: <code>tm_&lt;txid&gt;_0</code> for a token deployed at output 0, <code>tm_&lt;txid&gt;_&lt;vout&gt;</code> for a BRC-161 token at another output. The deploy page shows the topic of a new token. Changing it is root's (the key that claimed the instance, or one root granted): a message from your wallet to the box <code>{where.app}/register</code> of <code>{where.base}</code>.</p>
       {status !== "connected" && <p className="mut">Connect the wallet holding root on this skein.</p>}
       {readErr && <p className="status bad">The list: <Ids text={readErr} /></p>}
       {inst && (
@@ -130,7 +130,7 @@ function TokensPage() {
           <div className="card">
             <h2>Register a topic</h2>
             <form className="row" onSubmit={(e) => { e.preventDefault(); if (!idProblem) void run("register", register(topic)); }}>
-              <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="tm_<txid>" />
+              <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="tm_<txid>_<vout>" />
               <button type="submit" className="go" disabled={!!busy || !!idProblem}>{busy === "register" ? "Registering…" : "Register"}</button>
             </form>
             {topic && idProblem && <p className="mut small">{idProblem}</p>}
@@ -166,11 +166,11 @@ function TokensPage() {
             <p className="mut small">Two settings of this overlay, yours to turn on or off; each is a message to <code>{where.app}/register</code>, and applies to every registered token at once.</p>
             <label className="inline">
               <input type="checkbox" checked={!!roles?.market} disabled={!!busy || roles === undefined} onChange={(e) => void switchRole("market", e.target.checked)} />
-              Market: keep who is validating each registered token (the beats on <code>tm_&lt;txid&gt;-live</code>{roles?.market ? <>, a window of {roles.market.window / 1000} s</> : null}).
+              Market: keep who is validating each registered token (the beats on <code>tm_&lt;txid&gt;_&lt;vout&gt;-live</code>{roles?.market ? <>, a window of {roles.market.window / 1000} s</> : null}).
             </label>
             <label className="inline">
               <input type="checkbox" checked={!!roles?.validator} disabled={!!busy || roles === undefined} onChange={(e) => void switchRole("validator", e.target.checked)} />
-              Validator: beat on each registered token's <code>tm_&lt;txid&gt;-live</code>{roles?.validator ? <>, every {roles.validator.every / 1000} s</> : null}, and sign for it.
+              Validator: beat on each registered token's <code>tm_&lt;txid&gt;_&lt;vout&gt;-live</code>{roles?.validator ? <>, every {roles.validator.every / 1000} s</> : null}, and sign for it.
             </label>
           </div>
           {busy && <p className="status wait">{busy.startsWith("submit:") || busy.endsWith(":submit") ? "Submitting the deploy…" : "Sent; waiting for the answer…"}</p>}

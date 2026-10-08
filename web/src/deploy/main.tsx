@@ -4,7 +4,7 @@
  * wallet signs and broadcasts it and files it (basket and labels
  * `mandala <txid> 0`). The page then submits the deploy to the overlay it is
  * served from under the discovery topic only (`tm_mandala`): its own topic
- * `tm_<txid>` did not exist before this transaction, so nobody serves it yet.
+ * `tm_<txid>_0` did not exist before this transaction, so nobody serves it yet.
  * The submit is a plain `fetch`, unsigned: the skein admits an unsigned POST
  * at the overlay's `submit` row, whose filter validates the BEEF
  * (shruggr/skein#135).

@@ -3,22 +3,26 @@
 //! The topic is the token's: any overlay for the same token admits the same
 //! set.
 //!
+//! A token's topic is `tm_<tokenId>`, its token id string `<txid>_<vout>` for
+//! every token, `_0` included (David, 2026-10-08: "that was the decision all
+//! along"), where <txid> is the deploy txid as 64 lowercase hex characters in
+//! display order and <vout> the deploy output, decimal without leading zeros:
+//!
 //! - A token deployed at output 0 (`native`), under BRC-162 or under
-//!   BRC-161: `tm_<txid>`, where <txid> is the deploy txid as 64 lowercase
-//!   hex characters in display order; the name carries no index. Its id
-//!   string is `<txid>_0`, on the wire the bare 32-byte txid. BRC-162 "Token
-//!   identification": a BRC-161 token deployed at output 0 is the same token
-//!   in both forms, with the 32-byte id.
+//!   BRC-161: `tm_<txid>_0`. On the wire its id is the bare 32-byte txid.
+//!   BRC-162 "Token identification": a BRC-161 token deployed at output 0 is
+//!   the same token in both forms, with the 32-byte id.
+//! - A token deployed under BRC-161 at a non-zero output (`legacy`):
+//!   `tm_<txid>_<vout>`. Its binary outputs carry the 36-byte id (BRC-162:
+//!   only such a token has one).
 //!
 //! A token id string is `<txid>_<vout>` for every token, Mandala and legacy
 //! BSV-21 alike, `_0` included (David, 2026-10-07, shruggr/skein#120; BRC-162
 //! "Token identification": "For display and APIs, the string form is
 //! `<txid>_<vout>`"); the bare 32-byte txid is the wire form only.
-//! - A token deployed under BRC-161 at a non-zero output (`legacy`):
-//!   `tm_<txid>_<vout>`, decimal without leading zeros. Its binary outputs
-//!   carry the 36-byte id (BRC-162: only such a token has one).
 //!
-//! `tm_<txid>_0` is not a topic name and is never produced (shruggr/skein#120).
+//! The bare `tm_<txid>` is not a topic name (0.8.2; it was output 0's topic
+//! until 0.8.1) and is neither produced nor taken.
 //!
 //! Only `std` is imported here.
 const std = @import("std");
@@ -29,7 +33,7 @@ pub const deploys_topic = "tm_mandala";
 /// Its lookup service.
 pub const deploys_service = "ls_mandala_deploys";
 
-/// The longest `<txid>[_<vout>]` suffix: 64 hex, `_`, 10 digits.
+/// The longest `<txid>_<vout>` suffix: 64 hex, `_`, 10 digits.
 pub const max_suffix_len = 64 + 1 + 10;
 pub const max_topic_len = topic_prefix.len + max_suffix_len;
 
@@ -55,19 +59,14 @@ pub fn idOfHex(hex: []const u8) ?[32]u8 {
     return id;
 }
 
-/// `<txid>` (native) or `<txid>_<vout>` (legacy: vout non-zero, decimal, no leading zeros).
+/// `<txid>_<vout>`, vout decimal without leading zeros: `_0` native, any other legacy.
 fn idOfSuffix(s: []const u8) ?TokenId {
-    if (s.len == 64) return .{ .txid = idOfHex(s) orelse return null };
     if (s.len < 66 or s[64] != '_') return null;
-    if (std.mem.eql(u8, s[64..], "_0")) return null; // output 0 is `<txid>`
     const v = s[65..];
     if (v.len > 1 and v[0] == '0') return null;
     for (v) |c| if (!std.ascii.isDigit(c)) return null;
-    return .{
-        .txid = idOfHex(s[0..64]) orelse return null,
-        .vout = std.fmt.parseInt(u32, v, 10) catch return null,
-        .kind = .legacy,
-    };
+    const vout = std.fmt.parseInt(u32, v, 10) catch return null;
+    return .{ .txid = idOfHex(s[0..64]) orelse return null, .vout = vout, .kind = if (vout == 0) .native else .legacy };
 }
 
 fn idAfter(prefix: []const u8, name: []const u8) ?TokenId {
@@ -78,7 +77,7 @@ fn idAfter(prefix: []const u8, name: []const u8) ?TokenId {
 /// The token a token id string names: `<txid>` (output 0), `<txid>_<vout>` or the BRC-36
 /// `<txid>.<vout>` (64 lowercase hex in display order; the vout decimal without leading
 /// zeros). Every form of one token names the same token and the same topic. Vout 0 is a token deployed at output 0
-/// (`tm_<txid>`, BRC-162 or BRC-161), any other vout a BRC-161 token deployed there
+/// (`tm_<txid>_0`, BRC-162 or BRC-161), any other vout a BRC-161 token deployed there
 /// (`tm_<txid>_<vout>`). Null for anything else.
 pub fn tokenIdOfString(s: []const u8) ?TokenId {
     if (s.len == 64) return .{ .txid = idOfHex(s) orelse return null };
@@ -99,9 +98,9 @@ pub fn tokenIdText(buf: *[max_suffix_len]u8, id: TokenId) []const u8 {
     return std.fmt.bufPrint(buf, "{s}_{d}", .{ &hex, id.vout }) catch unreachable;
 }
 
-/// The token a topic name carries: `tm_<txid>` (native) or
-/// `tm_<txid>_<vout>` (legacy). Null for anything else, including the old
-/// `tm_amm_<txid>`.
+/// The token a topic name carries: `tm_<txid>_<vout>` (`_0` native, any other
+/// vout legacy). Null for anything else, including the bare `tm_<txid>` (the
+/// topic of output 0 until 0.8.1) and the old `tm_amm_<txid>`.
 pub fn tokenIdOf(topic: []const u8) ?TokenId {
     return idAfter(topic_prefix, topic);
 }
@@ -110,14 +109,11 @@ fn nameOf(buf: []u8, prefix: []const u8, id: TokenId) []const u8 {
     var r = id.txid;
     std.mem.reverse(u8, &r);
     const hex = std.fmt.bytesToHex(r, .lower);
-    // By the deploy output alone: output 0 never carries an index.
-    return (if (id.vout == 0)
-        std.fmt.bufPrint(buf, "{s}{s}", .{ prefix, &hex })
-    else
-        std.fmt.bufPrint(buf, "{s}{s}_{d}", .{ prefix, &hex, id.vout })) catch unreachable;
+    // `<prefix><tokenId>`: the deploy output always carried, `_0` included.
+    return std.fmt.bufPrint(buf, "{s}{s}_{d}", .{ prefix, &hex, id.vout }) catch unreachable;
 }
 
-/// The topic name of token `id`: `tm_<txid>` (vout 0, whatever its kind) or `tm_<txid>_<vout>`.
+/// The topic name of token `id`: `tm_<txid>_<vout>`, `tm_<txid>_0` at output 0 whatever its kind.
 pub fn topicName(buf: *[max_topic_len]u8, id: TokenId) []const u8 {
     return nameOf(buf, topic_prefix, id);
 }

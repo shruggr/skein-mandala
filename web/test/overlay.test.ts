@@ -62,7 +62,7 @@ describe("unsigned: the submit is plain fetch (shruggr/skein#135; David 2026-10-
     const signed = stub([{ beef, outputIndex: 0 }]);
     const plain = stub([]);
     vi.stubGlobal("fetch", plain.f);
-    expect(await submitDeployToTopic(base, `tm_${txid}`, undefined, signed.f)).toEqual({ answer: ADMITTED, via: "lookup", topics: [`tm_${txid}`] });
+    expect(await submitDeployToTopic(base, `tm_${txid}_0`, undefined, signed.f)).toEqual({ answer: ADMITTED, via: "lookup", topics: [`tm_${txid}_0`] });
     expect(signed.sent.map((s) => s.url)).toEqual([`${base}/lookup`]);
     expect(plain.sent.map((s) => s.url)).toEqual([`${base}/submit`]);
   });
@@ -82,17 +82,18 @@ describe("signed: the lookup goes through the wallet's BRC-104 client", () => {
 
 describe("a token topic's own deploy", () => {
   it("the token id from the topic", () => {
-    expect(tokenOfTopic(`tm_${txid}`)).toEqual({ tokenId: `${txid}_0`, txid, vout: 0 });
+    expect(tokenOfTopic(`tm_${txid}_0`)).toEqual({ tokenId: `${txid}_0`, txid, vout: 0 });
+    expect(() => tokenOfTopic(`tm_${txid}`)).toThrow(/token's topic/);
     expect(tokenOfTopic(`tm_${txid}_3`)).toEqual({ tokenId: `${txid}_3`, txid, vout: 3 });
     expect(() => tokenOfTopic("tm_mandala")).toThrow(/token's topic/);
   });
-  it("register → the discovery lookup → submit under tm_<txid> only", async () => {
+  it("register → the discovery lookup → submit under tm_<txid>_0 only", async () => {
     const { f, sent } = stub([{ beef, outputIndex: 0 }]);
-    const r = await submitDeployToTopic(base, `tm_${txid}`, undefined, f, f);
-    expect(r).toEqual({ answer: ADMITTED, via: "lookup", topics: [`tm_${txid}`] });
+    const r = await submitDeployToTopic(base, `tm_${txid}_0`, undefined, f, f);
+    expect(r).toEqual({ answer: ADMITTED, via: "lookup", topics: [`tm_${txid}_0`] });
     expect(sent.map((s) => s.url)).toEqual([`${base}/lookup`, `${base}/submit`]);
     expect(JSON.parse(sent[0]!.body as string)).toEqual({ service: "ls_mandala_deploys", query: { tokenId: `${txid}_0` } });
-    expect(sent[1]!.headers["x-topics"]).toBe(`tm_${txid}`);
+    expect(sent[1]!.headers["x-topics"]).toBe(`tm_${txid}_0`);
     expect(Array.from(sent[1]!.body as Uint8Array)).toEqual(beef);
   });
   it("the legacy form looks up <txid>_<vout>", async () => {
@@ -100,23 +101,23 @@ describe("a token topic's own deploy", () => {
     await submitDeployToTopic(base, `tm_${txid}_2`, undefined, f, f);
     expect(JSON.parse(sent[0]!.body as string).query).toEqual({ tokenId: `${txid}_2` });
   });
-  it("the lookup has none: the wallet's copy (basket mandala <txid> 0), under tm_mandala and tm_<txid>", async () => {
+  it("the lookup has none: the wallet's copy (basket mandala <txid> 0), under tm_mandala and tm_<txid>_0", async () => {
     const { f, sent } = stub([]);
     const asked: unknown[] = [];
     const wallet = {
       listOutputs: async (a: unknown) => { asked.push(a); return { totalOutputs: 1, outputs: [{ outpoint: `${txid}.0`, satoshis: 1, spendable: true }], BEEF: beef }; },
     } as unknown as WalletInterface;
-    const r = await submitDeployToTopic(base, `tm_${txid}`, wallet, f, f);
-    expect(r).toEqual({ answer: ADMITTED, via: "wallet", topics: ["tm_mandala", `tm_${txid}`] });
+    const r = await submitDeployToTopic(base, `tm_${txid}_0`, wallet, f, f);
+    expect(r).toEqual({ answer: ADMITTED, via: "wallet", topics: ["tm_mandala", `tm_${txid}_0`] });
     expect(asked).toEqual([{ basket: `mandala ${txid} 0`, include: "entire transactions", limit: 100 }]);
-    expect(sent[1]!.headers["x-topics"]).toBe(`tm_mandala,tm_${txid}`);
+    expect(sent[1]!.headers["x-topics"]).toBe(`tm_mandala,tm_${txid}_0`);
     expect(Array.from(sent[1]!.body as Uint8Array)).toEqual(beef);
   });
   it("neither has it: an error, nothing submitted", async () => {
     const { f, sent } = stub([]);
     const wallet = { listOutputs: async () => ({ totalOutputs: 0, outputs: [] }) } as unknown as WalletInterface;
-    await expect(submitDeployToTopic(base, `tm_${txid}`, wallet, f, f)).rejects.toThrow(/does not hold it/);
-    await expect(submitDeployToTopic(base, `tm_${txid}`, undefined, f, f)).rejects.toThrow(/no wallet/);
+    await expect(submitDeployToTopic(base, `tm_${txid}_0`, wallet, f, f)).rejects.toThrow(/does not hold it/);
+    await expect(submitDeployToTopic(base, `tm_${txid}_0`, undefined, f, f)).rejects.toThrow(/no wallet/);
     expect(sent.every((s) => s.url.endsWith("/lookup"))).toBe(true);
   });
   it("a register's seeding answered the deploy missing (skein-overlay 0.7.8): the wallet's copy, no lookup, under tm_mandala and tm_<txid>_<vout>", async () => {
@@ -126,6 +127,6 @@ describe("a token topic's own deploy", () => {
     } as unknown as WalletInterface;
     expect(await submitWalletDeploy(base, `tm_${txid}_2`, wallet, undefined, f)).toEqual({ answer: ADMITTED, via: "wallet", topics: ["tm_mandala", `tm_${txid}_2`] });
     expect(sent.map((x) => x.url)).toEqual([`${base}/submit`]);
-    await expect(submitWalletDeploy(base, `tm_${txid}`, undefined, "missing", f)).rejects.toThrow(/^missing, and no wallet/);
+    await expect(submitWalletDeploy(base, `tm_${txid}_0`, undefined, "missing", f)).rejects.toThrow(/^missing, and no wallet/);
   });
 });

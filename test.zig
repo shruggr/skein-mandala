@@ -626,37 +626,40 @@ test "fixtures: a contract's spends (amm-poc's swaps and a liquidity removal) ad
 
 // --- the program: topic names and the topic contract ---
 
-test "topic names: tm_<txid> native, tm_<txid>_<vout> legacy; AMM-prefixed names are not ours; token id strings" {
+test "topic names: tm_<txid>_0 native, tm_<txid>_<vout> legacy; bare tm_<txid> and AMM-prefixed names are not ours; token id strings" {
     var buf: [names.max_topic_len]u8 = undefined;
     const nm = names.topicName(&buf, .{ .txid = id_a });
-    try testing.expectEqualStrings("tm_" ++ w.header.toHex(id_a), nm);
+    try testing.expectEqualStrings("tm_" ++ w.header.toHex(id_a) ++ "_0", nm);
     const n = token.tokenIdOf(nm).?;
     try testing.expectEqualSlices(u8, &id_a, &n.txid);
     try testing.expectEqual(bsv21.Kind.native, n.kind);
     try testing.expectEqual(@as(u32, 0), n.vout);
     const rev = "tm_0102030405060708091011121314151617181920212223242526272829303132";
-    const got = token.tokenIdOf(rev).?.txid;
+    const got = token.tokenIdOf(rev ++ "_0").?.txid;
     try testing.expectEqual(@as(u8, 0x32), got[0]);
     try testing.expectEqual(@as(u8, 0x01), got[31]);
-    try testing.expect(token.tokenIdOf("tm_" ++ "AB" ** 32) == null); // uppercase
+    try testing.expect(token.tokenIdOf("tm_" ++ "AB" ** 32 ++ "_0") == null); // uppercase
     try testing.expect(token.tokenIdOf("tm_abcd") == null);
     try testing.expect(token.tokenIdOf("tm_demo") == null);
 
-    // Legacy BRC-161 `tm_<txid>_<vout>` at a non-zero output only. A BRC-161 token deployed at
-    // output 0 is `tm_<txid>` (BRC-162: its id is the 32-byte txid); `tm_<txid>_0` is no topic.
-    try testing.expect(token.tokenIdOf(rev ++ "_0") == null);
+    // The topic is `tm_<tokenId>`, `_<vout>` always (David 2026-10-08): `tm_<txid>_0` at output 0,
+    // a BRC-161 token deployed there too (BRC-162: the same token); the bare `tm_<txid>` is no topic.
+    try testing.expect(token.tokenIdOf(rev) == null);
+    const l0 = token.tokenIdOf(rev ++ "_0").?;
+    try testing.expectEqual(bsv21.Kind.native, l0.kind);
+    try testing.expectEqual(@as(u32, 0), l0.vout);
     const l7 = token.tokenIdOf(rev ++ "_4294967295").?;
     try testing.expectEqual(bsv21.Kind.legacy, l7.kind);
     try testing.expectEqual(@as(u32, 4294967295), l7.vout);
     try testing.expectEqualStrings(rev ++ "_12", names.topicName(&buf, .{ .txid = got, .vout = 12, .kind = .legacy }));
-    try testing.expectEqualStrings(rev, names.topicName(&buf, .{ .txid = got, .vout = 0, .kind = .legacy }));
+    try testing.expectEqualStrings(rev ++ "_0", names.topicName(&buf, .{ .txid = got, .vout = 0, .kind = .legacy }));
     // Not canonical: leading zeros, sign, empty, too large, other separators.
     for ([_][]const u8{ "_00", "_01", "_+1", "_", "_4294967296", ".0", "_1_2", "_-1", "_ 1" }) |bad| {
         var nb: [100]u8 = undefined;
         try testing.expect(token.tokenIdOf(try std.fmt.bufPrint(&nb, "{s}{s}", .{ rev, bad })) == null);
     }
     // The old AMM topic name.
-    try testing.expect(token.tokenIdOf("tm_amm_" ++ rev[3..]) == null);
+    try testing.expect(token.tokenIdOf("tm_amm_" ++ rev[3..] ++ "_0") == null);
 
     // Token id strings, taken in every form: `<txid>`, `<txid>_<vout>`, `<txid>.<vout>`. `<txid>`,
     // `<txid>_0` and `<txid>.0` are the token at output 0; any other vout a BRC-161 one.
@@ -665,7 +668,7 @@ test "topic names: tm_<txid> native, tm_<txid>_<vout> legacy; AMM-prefixed names
         try testing.expectEqual(names.Kind.native, sid.kind);
         try testing.expectEqual(@as(u32, 0), sid.vout);
         try testing.expectEqualSlices(u8, &got, &sid.txid);
-        try testing.expectEqualStrings(rev, names.topicName(&buf, sid));
+        try testing.expectEqualStrings(rev ++ "_0", names.topicName(&buf, sid));
     }
     for ([_][]const u8{ rev[3..] ++ "_3", rev[3..] ++ ".3" }) |form| {
         const sid3 = names.tokenIdOfString(form).?;
@@ -731,9 +734,9 @@ test "program: identify through the topic contract, reading records from a store
 
     // Not a token topic: tm_demo.
     try testing.expectError(error.UnknownTopic, topic.judge(a, s, program.identify, try callArgs(a, "tm_demo", subject, &.{0})));
-    // `tm_<txid>_0` is no topic (a token at output 0 is `tm_<txid>` in either form).
-    const legacy = try std.mem.concat(a, u8, &.{ tname, "_0" });
-    try testing.expectError(error.UnknownTopic, topic.judge(a, s, program.identify, try callArgs(a, legacy, deploy_cid, &.{})));
+    // The bare `tm_<txid>` is no topic (a token at output 0 is `tm_<txid>_0` in either form).
+    const bare = tname[0 .. tname.len - 2];
+    try testing.expectError(error.UnknownTopic, topic.judge(a, s, program.identify, try callArgs(a, bare, deploy_cid, &.{})));
 }
 
 // --- legacy BRC-161 tokens and their migration, on gen/main.go's transactions ---
@@ -766,7 +769,7 @@ test "legacy: JSON deploys at output 0 and at a non-zero output; a JSON transfer
 
     try expectVerdict(a, f, L0, "legacy_deploy0", &.{}, &.{0});
     try expectVerdict(a, f, L1, "legacy_deploy1", &.{}, &.{1});
-    // deploy0 at output 0 is the token of `tm_<txid>` whatever the kind says (the deploy output
+    // deploy0 at output 0 is the token of `tm_<txid>_0` whatever the kind says (the deploy output
     // decides); deploy1's output 0 is not deploy1's token.
     try expectVerdict(a, f, .{ .txid = L0.txid }, "legacy_deploy0", &.{}, &.{0});
     try expectVerdict(a, f, .{ .txid = L1.txid, .vout = 0, .kind = .legacy }, "legacy_deploy1", &.{}, &.{});
@@ -1065,7 +1068,7 @@ test "program: metadata and documentation through the topic contract's describe"
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const t = "tm_" ++ "a5" ** 32;
+    const t = "tm_" ++ "a5" ** 32 ++ "_0";
     const arg: Value = .{ .map = &.{ .{ .key = "kind", .value = text("topic-describe") }, .{ .key = "topic", .value = text(t) } } };
     const m = try topic.describe(a, program, "metadata", arg);
     try testing.expectEqualStrings(t, m.getText("name").?);
@@ -1077,7 +1080,7 @@ test "program: metadata and documentation through the topic contract's describe"
     try testing.expect(std.mem.startsWith(u8, ld.getText("documentation").?, "# Mandala token lookup service"));
 }
 
-test "program: a BRC-161 token deployed at output 0 is tm_<txid>, its id <txid>_0 (its origin BSV-21); tm_<txid>_0 is never produced" {
+test "program: a BRC-161 token deployed at output 0 is tm_<txid>_0, its id <txid>_0 (its origin BSV-21); the bare tm_<txid> is no topic" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -1089,13 +1092,13 @@ test "program: a BRC-161 token deployed at output 0 is tm_<txid>, its id <txid>_
     const hex = w.header.toHex(txid);
 
     // Its id and its topic, from every direction.
-    const t = "tm_" ++ hex;
+    const t = "tm_" ++ hex ++ "_0";
     var buf: [names.max_topic_len]u8 = undefined;
     try testing.expectEqualStrings(t, names.topicName(&buf, .{ .txid = txid, .vout = 0, .kind = .legacy }));
     try testing.expectEqualStrings(t, names.topicName(&buf, names.tokenIdOfString(&hex ++ "_0").?));
-    try testing.expect(names.tokenIdOf("tm_" ++ hex ++ "_0") == null);
+    try testing.expect(names.tokenIdOf("tm_" ++ hex) == null);
 
-    // The JSON deploy and a JSON transfer of it, judged under tm_<txid>.
+    // The JSON deploy and a JSON transfer of it, judged under tm_<txid>_0.
     _ = try s.putBitcoin(a, .tx, f.raws.get("legacy_fund").?);
     const deploy_cid = try s.putBitcoin(a, .tx, f.raws.get("legacy_deploy0").?);
     const transfer_cid = try s.putBitcoin(a, .tx, f.raws.get("legacy_transfer").?);
@@ -1346,7 +1349,7 @@ test "tokens: every deploy tm_mandala admitted, its id `<txid>_<vout>`, topic, s
         const hex = &w.header.toHex(mine_txid);
         if (std.mem.eql(u8, x.txid, hex)) {
             try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_0", .{hex}), x.tokenId); // `<txid>_0`, a Mandala token too
-            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "tm_{s}", .{hex}), x.topic);
+            try testing.expectEqualStrings(try std.fmt.allocPrint(a, "tm_{s}_0", .{hex}), x.topic);
             try testing.expectEqualStrings("AB", x.sym);
             try testing.expectEqual(@as(u8, 2), x.dec);
             try testing.expectEqualStrings(try std.fmt.allocPrint(a, "{s}_3", .{hex}), x.icon.?);

@@ -6,8 +6,8 @@
  * The set is the engine's head `<app>/topics`, `{kind: "overlay-topics",
  * topics: [{topic, program}]}`. A message to the app's box `<app>/register` (skein-overlay 0.7.7): `{fn:
  * "register", args: {topic, program: "mandala-topic", seed?}}` or `{fn:
- * "deregister", args: {topic}}`, the topic `tm_<txid>`, `tm_<txid>_<vout>`
- * or `tm_mandala`. A token's register seeds its topic with its deploy
+ * "deregister", args: {topic}}`, the topic a token's `tm_<txid>_<vout>`
+ * (`tm_<txid>_0` at output 0) or `tm_mandala`. A token's register seeds its topic with its deploy
  * (skein-overlay 0.7.8): `seed: [<the deploy txid>]`, judged from what the
  * instance's chain state holds. The step's answer is its result record (its
  * CID on stdout): `{kind: "overlay-result", op, topic, active, changed,
@@ -24,19 +24,20 @@ export type Call =
   | { fn: "deregister"; args: { topic: string } };
 
 /**
- * A token's topic as typed: `tm_<txid>` (a token deployed at output 0) or
- * `tm_<txid>_<vout>` (a BRC-161 token at a non-zero output); 64 lowercase hex.
+ * A token's topic as typed: `tm_<tokenId>`, `tm_<txid>_<vout>` for every token
+ * (`tm_<txid>_0` a token deployed at output 0, any other vout a BRC-161 token
+ * deployed there; David 2026-10-08); 64 lowercase hex. The bare `tm_<txid>` is no topic.
  */
 export function tokenTopicOf(text: string): string {
   const t = text.trim();
-  const m = /^tm_[0-9a-f]{64}(?:_([1-9]\d*))?$/.exec(t);
-  if (!m || (m[1] !== undefined && Number(m[1]) > 0xffffffff)) {
-    throw new Error("a token's topic: tm_<txid> or tm_<txid>_<vout> (64 lowercase hex characters)");
+  const m = /^tm_[0-9a-f]{64}_(0|[1-9]\d*)$/.exec(t);
+  if (!m || Number(m[1]) > 0xffffffff) {
+    throw new Error("a token's topic: tm_<txid>_<vout> (64 lowercase hex characters; tm_<txid>_0 at output 0)");
   }
   return t;
 }
 
-/** The deploy txid a token's topic names: `tm_<txid>` / `tm_<txid>_<vout>` → `<txid>`. */
+/** The deploy txid a token's topic names: `tm_<txid>_<vout>` → `<txid>`. */
 export function deployTxidOf(topic: string): string {
   return tokenTopicOf(topic).slice(3, 67);
 }

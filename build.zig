@@ -10,7 +10,7 @@
 //   mandala   the BRC-162 / BRC-161 output parsers, the BSV-21 rules, topic   src/lib.zig
 //             names, the topic's verdict (std only)
 //
-//   zig build         → zig-out/bin/mandala-topic.wasm (tm_<txid>), mandala-lookup.wasm (ls_mandala)
+//   zig build         → zig-out/bin/mandala-topic.wasm (tm_<txid>_<vout>), mandala-lookup.wasm (ls_mandala)
 //   zig build bin     the same, written to bin/*.wasm (committed)
 //   zig build test    the parsers, the rules, the topic, the lookup, natively
 const std = @import("std");

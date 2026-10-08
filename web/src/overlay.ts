@@ -77,11 +77,11 @@ export async function submitBeef(appBase: string, beef: ArrayLike<number>, topic
   return took.length ? `admitted under ${took.join("; ")}` : "taken by no topic";
 }
 
-/** The token a topic serves: `tm_<txid>` → `<txid>_0`, `tm_<txid>_<vout>` → `<txid>_<vout>` (BRC-162 "Token identification"). */
+/** The token a topic serves: `tm_<tokenId>`, `tm_<txid>_<vout>` → `<txid>_<vout>`, `_0` included (David 2026-10-08; BRC-162 "Token identification"). */
 export function tokenOfTopic(topic: string): { tokenId: string; txid: string; vout: number } {
-  const m = /^tm_([0-9a-f]{64})(?:_([1-9]\d*))?$/.exec(topic);
-  if (!m) throw new Error(`${topic}: not a token's topic (tm_<txid> or tm_<txid>_<vout>)`);
-  const vout = m[2] === undefined ? 0 : Number(m[2]);
+  const m = /^tm_([0-9a-f]{64})_(0|[1-9]\d*)$/.exec(topic);
+  if (!m) throw new Error(`${topic}: not a token's topic (tm_<txid>_<vout>)`);
+  const vout = Number(m[2]);
   return { tokenId: `${m[1]}_${vout}`, txid: m[1]!, vout };
 }
 

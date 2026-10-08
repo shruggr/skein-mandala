@@ -20,7 +20,7 @@ export function shortId(value: string): string {
 /**
  * The ids in a line of text: a txid (64 hex), with an optional `tm_` before
  * (a topic) and an optional `.<vout>` / `_<vout>` after (an outpoint, a
- * token id or a legacy token's topic). Other hex (a 66-character key) is left out.
+ * token id or a token's topic). Other hex (a 66-character key) is left out.
  */
 const ID = /(?<![0-9A-Za-z_])(?:tm_)?[0-9a-fA-F]{64}(?:[._](?:0|[1-9]\d*))?(?![0-9A-Za-z])/g;
 

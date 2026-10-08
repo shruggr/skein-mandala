@@ -304,7 +304,7 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     return
     \\# Mandala token lookup service (ls_mandala)
     \\
-    \\Indexes the outputs the Mandala token topics (`tm_<txid>`) admit, by token id and
+    \\Indexes the outputs the Mandala token topics (`tm_<txid>_<vout>`) admit, by token id and
     \\outpoint. A token id is the deploy outpoint, the txid in display byte order,
     \\lowercase, written `<txid>_<vout>` for every token, `<txid>_0` included (BRC-162 "Token
     \\identification": the bare 32-byte txid is the wire form only). A query takes any of

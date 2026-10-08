@@ -9,7 +9,7 @@ app; one topic per token; the protocol first; governance later, per token.
 
 | component | file | role | what |
 |---|---|---|---|
-| topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>` by the token rules |
+| topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>_<vout>` by the token rules |
 | lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output; fn `tokens`: the token list, a read (0.7.0) |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
@@ -22,17 +22,21 @@ another app"). This repo's `etc/app.json` is a manifest of the three alone.
 
 ## The topic
 
-**Names** (`src/name.zig`). `<txid>` is the deploy txid, 64 lowercase hex
-characters in display order.
+**Names** (`src/name.zig`). A token's topic is `tm_<tokenId>`, its id
+`<txid>_<vout>` for every token, `_0` included (David, 2026-10-08: "that
+was the decision all along"). `<txid>` is the deploy txid, 64 lowercase hex
+characters in display order; `<vout>` decimal without leading zeros.
 
-- `tm_<txid>`: a token deployed at output 0. Its genesis is a binary
+- `tm_<txid>_0`: a token deployed at output 0. Its genesis is a binary
   deploy (id `OP_0`) or a BRC-161 `deploy+mint` / `deploy+auth`
   inscription there; on the wire its id is the 32-byte txid.
   BRC-162 "Token identification": a BRC-161 token deployed at output 0 is
   the same token in both forms.
 - `tm_<txid>_<vout>`: a token deployed under BRC-161 at a non-zero output.
   Its binary outputs carry the 36-byte id, the only tokens that have one.
-- `tm_<txid>_0` is not a topic name and is never produced.
+- The bare `tm_<txid>` is not a topic name, neither produced nor taken
+  (0.8.2; it was output 0's topic until 0.8.1). Names derived from a topic
+  follow it: `tm_<txid>_0-live`.
 
 **Token ids** (`src/name.zig` `tokenIdOfString`, `tokenIdText`). A token id
 is the deploy outpoint, written `<txid>_<vout>` for every token, Mandala and
@@ -164,7 +168,7 @@ runs as the route's filter over the current state and answers `{answer:
   ```
 
   `tokenId` `<txid>_<vout>` (`<txid>_0` at output 0, a binary deploy's or a
-  BRC-161 one's alike), `topic` the token's (`tm_<txid>` or
+  BRC-161 one's alike), `topic` the token's (`tm_<txid>_0` or
   `tm_<txid>_<vout>`), `txid` / `vout` the deploy outpoint. `sym`, `dec`
   and `icon` are the deploy's display fields: a BRC-161 deploy's JSON
   `sym`, `dec`, `icon`; a BRC-162 deploy's payload, a DAG-CBOR map read by
@@ -193,7 +197,7 @@ anywhere, in the configuration or in the routes.
 
 1. Root sends `{fn: "register", args: {topic, program:
    "mandala-topic"}}` to the app's box `<app>/register`. The topic is
-   `tm_<txid>`, `tm_<txid>_<vout>` or `tm_mandala`; it follows from
+   `tm_<txid>_<vout>` (`tm_<txid>_0` at output 0) or `tm_mandala`; it follows from
    how the token was deployed (the deploy page shows it). The route
    `{address: "register", handler: "overlay.register"}` (relative; the
    install resolves it to `<app>/register`, skein#128) takes it to the

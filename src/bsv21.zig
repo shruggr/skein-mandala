@@ -10,7 +10,7 @@
 //!
 //! Which outputs are this token's (`tokenOf`), by its deploy output (BRC-162
 //! "Token identification"):
-//! - deployed at output 0 (`tm_<txid>`): the genesis is output 0 of the
+//! - deployed at output 0 (`tm_<txid>_0`): the genesis is output 0 of the
 //!   deploy txid, a BRC-162 deploy or a BRC-161 `deploy+mint` /
 //!   `deploy+auth` inscription (the same token in both forms); later outputs
 //!   are binary with the 32-byte id, or JSON with `id` `<txid>_0`. A token

@@ -12,9 +12,9 @@ describe("ids (David 2026-10-08: expandable, copyable)", () => {
     expect(shortId("tm_mandala")).toBe("tm_mandala");
   });
   it("finds the ids in a status line: txids, topics, outpoints, token ids", () => {
-    const line = `tm_${txid}: registered (seeded: ${txid}.0, ${txid}_3, ${txid}_0; missing: none).`;
+    const line = `tm_${txid}_0: registered (seeded: ${txid}.0, ${txid}_3, ${txid}_0; missing: none).`;
     expect(idParts(line)).toEqual([
-      { id: true, text: `tm_${txid}` },
+      { id: true, text: `tm_${txid}_0` },
       { id: false, text: ": registered (seeded: " },
       { id: true, text: `${txid}.0` },
       { id: false, text: ", " },

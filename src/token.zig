@@ -8,7 +8,7 @@ const std = @import("std");
 const bsv21 = @import("bsv21.zig");
 const name = @import("name.zig");
 
-/// The token a topic name carries (`tm_<txid>` native, `tm_<txid>_<vout>`
+/// The token a topic name carries (`tm_<txid>_0` native, `tm_<txid>_<vout>`
 /// legacy, name.zig), as the rules take it.
 pub fn tokenIdOf(topic: []const u8) ?bsv21.TokenId {
     return fromName(name.tokenIdOf(topic) orelse return null);

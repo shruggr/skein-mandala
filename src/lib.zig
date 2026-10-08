@@ -4,7 +4,7 @@
 //!   brc162   the BRC-162 binary output parser: `<id | OP_0> <amount | OP_0> OP_2DROP [<payload> OP_DROP] <lock>`
 //!   brc161   the BRC-161 (BSV-21 JSON, legacy) inscription parser
 //!   bsv21    the BSV-21 rules for one token over one parsed transaction (both forms)
-//!   name     topic names: `tm_<txid>` (BRC-162), `tm_<txid>_<vout>` (BRC-161 at that output)
+//!   name     topic names: `tm_<tokenId>`, `tm_<txid>_0` at output 0 (BRC-162), `tm_<txid>_<vout>` (BRC-161 at that output)
 //!   token    the topic's verdict: the rules, nothing else
 //!
 //! The topic manager (src/mandala_topic.zig) and the lookup service
