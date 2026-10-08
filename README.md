@@ -118,17 +118,17 @@ Content-Type: application/octet-stream
 
 ```
 POST <base>/lookup
-{"service": "ls_mandala", "query": {"tokenId": "<txid>", "limit": 10}}
+{"service": "ls_mandala", "query": {"tokenId": "<txid>_0", "limit": 10}}
 {"service": "ls_mandala", "query": {"authoritiesTokenId": "<txid>"}}
 {"service": "ls_mandala", "query": {"txid": "<txid>", "outputIndex": 1}}
-{"service": "ls_mandala_deploys", "query": {"tokenId": "<txid>"}}
+{"service": "ls_mandala_deploys", "query": {"tokenId": "<txid>_0"}}
 ```
 
 **List the tokens** (a read: any method, signed or not):
 
 ```
 GET <base>/mandala/tokens?limit=20&skip=0
-→ [{"tokenId": "<txid>", "topic": "tm_<txid>_0", "sym": "GOLD", "dec": 8, "icon": "<txid>_<vout>", "txid": "<txid>", "vout": 0}, …]
+→ [{"tokenId": "<txid>_0", "topic": "tm_<txid>_0", "sym": "GOLD", "dec": 8, "icon": "<txid>_<vout>", "txid": "<txid>", "vout": 0}, …]
 ```
 
 Each answer is an output-list: `{type: "output-list", outputs: [{beef,
