@@ -4,7 +4,7 @@ The Mandala token (BRC-162) overlay components for a
 [skein](https://github.com/shruggr/skein): a topic manager and a lookup
 service, as programs an overlay app carries in its tree, and the token
 library they are built on, as a Zig package, and two pages an app that
-carries the components serves. Version **0.9.1**.
+carries the components serves. Version **0.9.2**.
 
 ## What it is
 
@@ -81,7 +81,9 @@ runtime, the hooks reaching a lookup program once)
 (docs/MANDALA.md "Registering a topic"), taken in root's box
 `<app>/register` (0.7.7; `<app>/overlay` from 0.6.2), and whose submissions are messages into the
 submission box `<app>/submit`, by message and from `POST /submit` (0.7.6;
-before, the app's own box `<app>`). `bin/overlay.wasm` here is the v0.12.0
+before, the app's own box `<app>`). `bin/overlay.wasm` here is the v0.12.1
+build (0.12.1: liveness on a registered lookup's `<service>-live` too, and
+`config.overlay.terms` copied into the topic beat body), and before it the v0.12.0
 build (on skein-sdk v0.11.0, skein log format 10: the BEEF envelope beside
 the pointer record, shruggr/skein#146; `<topic>` one mesh for submit and
 admit messages, `<topic>-proof` and `<topic>-live` separate; a skein is
@@ -131,7 +133,7 @@ is served from the next step, and the host subscribes `tm_mandala_<assetId>`
 events (skein-overlay 0.12.0; `-admit` before), and keeps liveness and a
 beacon on `tm_mandala_<assetId>-live`; a registered lookup
 `ls_mandala_<assetId>` beats on `ls_mandala_<assetId>-live` (an empty body:
-mandala-lookup gives none).
+mandala-lookup gives none) and keeps liveness there (skein-overlay 0.12.1).
 
 **Submit** to the app's base URL (`https://<handle>.<host>/mandala`; local:
 `http://127.0.0.1:8100/@<handle>/mandala`):
@@ -180,7 +182,7 @@ An app that serves Mandala tokens with its own programs beside them (an
 AMM) carries these in its tree and manifest:
 
 1. **The programs.** `bin/overlay.wasm` (the engine, skein-overlay
-   0.12.0), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
+   0.12.1), `bin/mandala-topic.wasm`, `bin/mandala-lookup.wasm`, copied from
    this repo, under the roles `overlay`, `mandala-topic`, `mandala-lookup`.
 2. **`config.overlay`**, with no topics:
 
@@ -361,7 +363,7 @@ zig build bin      # the same, into bin/ (committed)
 zig build test     # the parsers, the rules, the topic, the lookup, natively
 ```
 
-`bin/overlay.wasm` is copied from skein-overlay v0.12.0's build (`zig build
+`bin/overlay.wasm` is copied from skein-overlay v0.12.1's build (`zig build
 bin` there; the same bytes as its committed `bin/overlay.wasm`), not built
 here. With a local skein-overlay
 checkout: `zig build --fork=../skein-overlay`.
@@ -379,9 +381,9 @@ checkout: `zig build --fork=../skein-overlay`.
 
 | | |
 |---|---|
-| this app, its programs and package | 0.9.1 (tag `v0.9.1`) |
+| this app, its programs and package | 0.9.2 (tag `v0.9.2`) |
 | the pages | `@1sat/actions` 0.0.233, `@1sat/react` 0.0.102, `@1sat/connect` 0.0.104, `@1sat/templates` 0.0.43, `@bsv/sdk` 2.8.6 (`web/package.json`, exact); skein's client at `web/lib/SKEIN_REV`. The committed `www/` (0.9.1) is built against the unpublished embedded icon, b-open-io/1sat-sdk#92 (branch `feat/mandala-embedded-icon`, aff025c3): `@1sat/templates` 0.0.43 and `@1sat/actions` 0.0.234 packed there (`npm pack`) and unpacked over `web/node_modules/@1sat/{templates,actions}` (not saved: `npm install --no-save` refuses their `workspace:*` dependencies), `package.json` unchanged. Once #92 is published, pin it and rebuild |
-| skein-overlay | v0.12.0 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
+| skein-overlay | v0.12.1 by tag URL and hash in `build.zig.zon` (modules `topic`, `lookup`, `sk`); the engine in `bin/` is its build |
 | skein-sdk | v0.11.0, through skein-overlay (modules `chain`, `sk`, `cbor`) |
 | requires | `chain/1` (shruggr/skein-chain 0.3.0) |
 | skein | log format 10, the BEEF envelope beside the pointer record (shruggr/skein#146); the routes / filters / roles manifest (shruggr/skein#143; 0.8.0: `dispatch` and `reads` became `routes`, the `register` box root's, the reads read routes whose filters answer) |
