@@ -1476,8 +1476,9 @@ test "the manifest (shruggr/skein#143): routes, filters and roles; no dispatch, 
     const j = (try std.json.parseFromSliceLeaky(std.json.Value, a, @embedFile("etc/app.json"), .{})).object;
     try testing.expect(j.get("dispatch") == null and j.get("reads") == null);
     const gated = j.get("roles").?.object.get("root").?.array.items;
-    try testing.expectEqual(@as(usize, 5), gated.len);
-    for ([_][]const u8{ "register", "registerLookup", "deregisterLookup", "market", "validator" }, gated) |x, g| try testing.expectEqualStrings(x, g.string);
+    // No `market` / `validator` (skein-overlay 0.12.0: every skein is both, always; no switch).
+    try testing.expectEqual(@as(usize, 3), gated.len);
+    for ([_][]const u8{ "register", "registerLookup", "deregisterLookup" }, gated) |x, g| try testing.expectEqualStrings(x, g.string);
     try testing.expectEqualStrings("mandala-lookup.tokens", j.get("filters").?.object.get("tokens").?.string);
     var tokens_read = false;
     var register = false;

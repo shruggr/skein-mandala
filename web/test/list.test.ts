@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DISCOVERY, answerOf, assetIdOf, deployTxidOf, deregister, deregisterToken, discovery, lookupAnswerOf, lookupOf, lookupsOf, register, registerLookup, registerToken, roleSwitch, rolesAnswerOf, rolesOf, tokenTopicOf, topicsOf } from "../src/tokens/list";
+import { readFileSync } from "node:fs";
+import * as list from "../src/tokens/list";
+import { DISCOVERY, answerOf, assetIdOf, deployTxidOf, deregister, deregisterToken, discovery, lookupAnswerOf, lookupOf, lookupsOf, register, registerLookup, registerToken, tokenTopicOf, topicsOf } from "../src/tokens/list";
 
 const txid = "cd".repeat(32);
 
@@ -68,27 +70,14 @@ describe("the registered set and the answers", () => {
   });
 });
 
-describe("root's switch: market and validator (skein-overlay 0.9.2)", () => {
-  it("on with its ms, or off", () => {
-    expect(roleSwitch("market", true)).toEqual({ fn: "market", args: { window: 40_000 } });
-    expect(roleSwitch("market", true, 60_000)).toEqual({ fn: "market", args: { window: 60_000 } });
-    expect(roleSwitch("validator", true)).toEqual({ fn: "validator", args: { every: 30_000 } });
-    expect(roleSwitch("market", false)).toEqual({ fn: "market", args: { off: true } });
-    expect(roleSwitch("validator", false)).toEqual({ fn: "validator", args: { off: true } });
+describe("market and validator are not switches (skein-overlay 0.12.0, David 2026-10-09: always both)", () => {
+  it("the page offers no market / validator switch and sends no such message", () => {
+    expect("roleSwitch" in list).toBe(false);
+    expect("rolesOf" in list).toBe(false);
+    const page = readFileSync(new URL("../src/tokens/main.tsx", import.meta.url), "utf8");
+    expect(page).not.toMatch(/fn: "(market|validator)"|switchRole|roleSwitch/);
   });
-  it("the roles in effect: the switch kept beside the set, over the manifest's config.overlay", () => {
-    const app = { kind: "app", config: { overlay: { market: { window: 40_000 } } } };
-    expect(rolesOf(undefined, undefined)).toEqual({});
-    expect(rolesOf(undefined, app)).toEqual({ market: { window: 40_000 } });
-    expect(rolesOf({ kind: "overlay-topics", topics: [] }, app)).toEqual({ market: { window: 40_000 } });
-    expect(rolesOf({ kind: "overlay-topics", topics: [], market: { off: true } }, app)).toEqual({});
-    expect(rolesOf({ kind: "overlay-topics", topics: [], market: { window: 60_000 }, validator: { every: 30_000 } }, app)).toEqual({ market: { window: 60_000 }, validator: { every: 30_000 } });
-    expect(topicsOf({ kind: "overlay-topics", topics: [{ topic: `tm_mandala_${txid}_0`, program: "mandala-topic" }], market: { off: true } })).toEqual([`tm_mandala_${txid}_0`]);
-  });
-  it("a switch's answer: the roles in effect, or the refusal", () => {
-    expect(rolesAnswerOf({ kind: "overlay-result", op: "market", market: { window: 40_000 }, changed: true, events: 2 })).toEqual({ ok: true, roles: { market: { window: 40_000 } } });
-    expect(rolesAnswerOf({ kind: "overlay-result", op: "validator", changed: true, events: 0 })).toEqual({ ok: true, roles: {} });
-    expect(rolesAnswerOf({ kind: "overlay-result", op: "market", error: "market: want {window: <ms>} (1000 ms to a day) or {off: true}" })).toEqual({ ok: false, message: "market: want {window: <ms>} (1000 ms to a day) or {off: true}" });
-    expect(rolesAnswerOf({ kind: "overlay-result", op: "register", topic: "x", active: true }).ok).toBe(false);
+  it("the set's record is read for its topics alone", () => {
+    expect(topicsOf({ kind: "overlay-topics", topics: [{ topic: `tm_mandala_${txid}_0`, program: "mandala-topic" }] })).toEqual([`tm_mandala_${txid}_0`]);
   });
 });

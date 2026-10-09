@@ -268,16 +268,19 @@ and deregistering reverses both: `{fn: "deregisterLookup", args:
    `{address: "register", handler: "overlay.register"}` (relative; the
    install resolves it to `<app>/register`, skein#128) takes it to the
    engine; `roles: {root: ["register", "registerLookup",
-   "deregisterLookup", "market", "validator"]}` gates it
+   "deregisterLookup"]}` gates it
    (shruggr/skein#143: a message from a key without root is recorded and
    runs nothing).
 2. The engine adds `{topic, program}` to its registered set, the head
    `<app>/topics` (`{kind: "overlay-topics", topics: [{topic, program}, …]}`,
    sorted, each once), and advances the head.
 3. In the same step it emits `{event: "subscribe", topic, program, fn}` for
-   `<topic>` (`submit`), `<topic>-admit` (`peerAdmit`) and `<topic>-proof`
-   (`peerProof`), `program` the engine's role. The host subscribes them
-   and routes their messages by these events (skein #119).
+   `<topic>` (`submit`: submit and admit messages, one mesh) and
+   `<topic>-proof` (`peerProof`), `program` the engine's role (skein-overlay
+   0.12.0; `<topic>-admit` before). The host subscribes them and routes
+   their messages by these events (skein #119). Then `liveness` and
+   `beacon` on `<topic>-live` (every skein a market and a validator,
+   always; the beat body the topic's view digest).
 4. With `seed: [txid, …]` (skein-overlay 0.7.8; the tokens page sends
    the deploy's txid), the engine then judges each seed the instance's
    chain state holds under the new topic only, oldest first over its held
@@ -316,9 +319,9 @@ not remove what the topic admitted or the lookup's index of it.
   `topics` list;
 - the routes, filters and roles (shruggr/skein#143; no senders): the
   route `{"address": "register", "handler": "overlay.register"}` (root's
-  `register` / `deregister`, `registerLookup` / `deregisterLookup` and
-  switches, box `<app>/register`; `roles: {"root": ["register",
-  "registerLookup", "deregisterLookup", "market", "validator"]}`), `{"address": "submit",
+  `register` / `deregister`, `registerLookup` / `deregisterLookup`, box
+  `<app>/register`; `roles: {"root": ["register", "registerLookup",
+  "deregisterLookup"]}`), `{"address": "submit",
   "filters": ["kernel.beef"], "handler": "overlay.submit"}` (the submission
   box `<app>/submit`: submissions by message, anyone whose BEEF validates,
   skein-overlay 0.7.6; no route of its own on `<app>`);

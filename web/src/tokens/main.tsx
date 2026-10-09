@@ -20,10 +20,10 @@
  * instance's BRC-104 client; the submit is a plain `fetch`, unsigned
  * (shruggr/skein#135).
  *
- * The two switches, Market and Validator (skein-overlay 0.9.2): root's
- * `market` / `validator` message to the same box `<app>/register`, as register
- * is sent; the answer is the roles in effect. Read from the set's record
- * (the switch, once sent) over the app record's `config.overlay`.
+ * Market and validator are not switches (skein-overlay 0.12.0; David,
+ * 2026-10-09: every skein is a market and a validator from install, always):
+ * registering a token starts both for it, deregistering stops them. The page
+ * says so and offers no switch.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@1sat/react";
@@ -32,7 +32,7 @@ import { Id, Ids } from "../Id";
 import { whereOf } from "../where";
 import { Instance } from "./instance";
 import { appBaseOf, authFetchOf, listTokens, submitDeployToTopic, submitWalletDeploy, type Listed, type Submitted } from "../overlay";
-import { DISCOVERY, answerOf, deployTxidOf, deregisterToken, discovery, lookupAnswerOf, lookupOf, lookupsOf, register, registerToken, roleSwitch, rolesAnswerOf, rolesOf, topicsOf, type Call, type Role, type Roles, type Seeding } from "./list";
+import { DISCOVERY, answerOf, deployTxidOf, deregisterToken, discovery, lookupAnswerOf, lookupOf, lookupsOf, register, registerToken, topicsOf, type Call, type Seeding } from "./list";
 
 const where = whereOf(location.href);
 
@@ -44,7 +44,6 @@ function TokensPage() {
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState<{ ok: boolean; text: string }>();
   const [topic, setTopic] = useState("");
-  const [roles, setRoles] = useState<Roles>();
   const [lookups, setLookups] = useState<string[]>([]);
   const [listed, setListed] = useState<Map<string, Listed>>(new Map());
 
@@ -54,10 +53,9 @@ function TokensPage() {
       const set = await inst.head(`${where.app}/topics`);
       setTopics(topicsOf(set));
       setLookups(lookupsOf(await inst.head(`${where.app}/lookups`)));
-      setRoles(rolesOf(set, await inst.head(`${where.app}/app`)));
       setReadErr("");
     }
-    catch (e) { setTopics(undefined); setRoles(undefined); setReadErr((e as Error).message); }
+    catch (e) { setTopics(undefined); setReadErr((e as Error).message); }
     // The deploys' display fields (a read; a page without them still works).
     try { setListed(new Map((await listTokens(appBaseOf(where))).map((t) => [t.topic, t]))); } catch { /* none shown */ }
   }, [inst]);
@@ -121,21 +119,6 @@ function TokensPage() {
     await load();
   }
 
-  /** Root's switch of a role (skein-overlay 0.9.2): the answer is the roles in effect. */
-  async function switchRole(role: Role, on: boolean) {
-    if (!inst || !where) return;
-    setBusy(role); setNote(undefined);
-    try {
-      const a = rolesAnswerOf(await inst.call(`${where.app}/register`, roleSwitch(role, on)));
-      if (a.ok) {
-        setRoles(a.roles);
-        setNote({ ok: true, text: `${role}: ${a.roles[role] ? "on" : "off"}. In effect: ${rolesText(a.roles)}.` });
-      } else setNote({ ok: false, text: a.message });
-    } catch (e) { setNote({ ok: false, text: (e as Error).message }); }
-    setBusy("");
-    await load();
-  }
-
   async function resubmit(t: string) {
     setBusy(`submit:${t}`); setNote(undefined);
     setNote(await submitDeploy(t, `${t}: `));
@@ -192,18 +175,7 @@ function TokensPage() {
               Serve <code>{DISCOVERY}</code>: every token's deploy output, so the metadata each token was deployed with can be found (lookup <code>ls_mandala_deploys</code>).
             </label>
           </div>
-          <div className="card">
-            <h2>Market and validator</h2>
-            <p className="mut small">Two settings of this overlay, yours to turn on or off; each is a message to <code>{where.app}/register</code>, and applies to every registered token at once.</p>
-            <label className="inline">
-              <input type="checkbox" checked={!!roles?.market} disabled={!!busy || roles === undefined} onChange={(e) => void switchRole("market", e.target.checked)} />
-              Market: keep who is validating each registered token (the beats on <code>tm_mandala_&lt;assetId&gt;-live</code>{roles?.market ? <>, a window of {roles.market.window / 1000} s</> : null}).
-            </label>
-            <label className="inline">
-              <input type="checkbox" checked={!!roles?.validator} disabled={!!busy || roles === undefined} onChange={(e) => void switchRole("validator", e.target.checked)} />
-              Validator: beat on each registered token's <code>tm_mandala_&lt;assetId&gt;-live</code>{roles?.validator ? <>, every {roles.validator.every / 1000} s</> : null}, and sign for it.
-            </label>
-          </div>
+          <p className="mut small">This overlay is a market and a validator for every registered token, always: registering a token starts both (the beats on <code>tm_mandala_&lt;assetId&gt;-live</code>), deregistering stops them.</p>
           {busy && <p className="status wait">{busy.startsWith("submit:") || busy.endsWith(":submit") ? "Submitting the deploy…" : "Sent; waiting for the answer…"}</p>}
           {note && <p className={`status ${note.ok ? "ok" : "bad"}`}><Ids text={note.text} /></p>}
         </>
@@ -217,11 +189,6 @@ function TokenIcon({ t }: { t?: Listed }) {
   if (!t) return null;
   const img = t.icon?.startsWith("data:") ? t.icon : undefined;
   return <span className="small">{img && <img src={img} alt="" width={20} height={20} style={{ verticalAlign: "middle", marginRight: 4 }} />}{t.sym}</span>;
-}
-
-function rolesText(r: Roles): string {
-  const on = [r.market && `market (window ${r.market.window / 1000} s)`, r.validator && `validator (a beat every ${r.validator.every / 1000} s)`].filter(Boolean);
-  return on.length ? on.join(", ") : "neither";
 }
 
 mount("Tokens", <TokensPage />);
