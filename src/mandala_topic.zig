@@ -1,9 +1,10 @@
 //! mandala-topic: the Mandala (BRC-162) topic manager, one topic per token
 //! (shruggr/skein#120).
 //!
-//! **The topic.** `tm_<tokenId>`: `tm_<txid>_0` for a token deployed at output 0 (BRC-162, or
-//! BRC-161 there: the same token), `tm_<txid>_<vout>` for a BRC-161 token
-//! deployed at a non-zero output (name.zig), and the discovery topic
+//! **The topic.** `tm_mandala_<assetId>` (BRC-207; David Case, 2026-10-08):
+//! `tm_mandala_<txid>_0` for a token deployed at output 0 (BRC-162, or
+//! BRC-161 there: the same token), `tm_mandala_<txid>_<vout>` for a BRC-161
+//! token deployed at a non-zero output (name.zig), and the discovery topic
 //! `tm_mandala`. `identify` (the skein-overlay topic contract,
 //! `topic.Call`) admits every output of the topic's token that the BSV-21
 //! rules allow and retains the token coins the transaction spends (token.zig,
@@ -13,7 +14,9 @@
 //!
 //! The topics served are the engine's: the owner registers each with the
 //! overlay engine, `register {topic, program: "mandala-topic"}`, and drops it
-//! with `deregister {topic}` (skein-overlay 0.6.0 "Register a topic").
+//! with `deregister {topic}` (skein-overlay 0.6.0 "Register a topic"); a
+//! token's lookup `ls_mandala_<assetId>` beside it with `registerLookup`
+//! (skein-overlay 0.11.0).
 const std = @import("std");
 const c = @import("chain");
 const topic = @import("topic");
@@ -89,11 +92,12 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\
     ;
     return
-    \\# Mandala token topic (tm_<txid>_<vout>)
+    \\# Mandala token topic (tm_mandala_<assetId>)
     \\
-    \\One topic per Mandala token (BRC-162), `tm_<tokenId>`: `tm_<txid>_0` for a token deployed at output 0,
-    \\under BRC-162 or BRC-161 (its id `<txid>_0`); `tm_<txid>_<vout>` for a token deployed
-    \\under BRC-161 (JSON) at output `<vout>`, its id `<txid>_<vout>`, with its one-way
+    \\One topic per Mandala token (BRC-162; BRC-207), `tm_mandala_<assetId>`: `tm_mandala_<txid>_0`
+    \\for a token deployed at output 0, under BRC-162 or BRC-161 (its id `<txid>_0`);
+    \\`tm_mandala_<txid>_<vout>` for a token deployed under BRC-161 (JSON) at output `<vout>`,
+    \\its id `<txid>_<vout>`, with its one-way
     \\migration to the binary form. `<txid>` is the deploy txid, 64 lowercase hex characters
     \\in display order. A token id is `<txid>_<vout>` for every token, `_0` included (BRC-162
     \\"Token identification"); the bare 32-byte txid is its wire form only.
@@ -113,7 +117,8 @@ pub fn documentation(_: Allocator, t: []const u8) anyerror![]const u8 {
     \\control check: the protocol only.
     \\
     \\The overlay serves a token's topic once it is registered with the overlay engine
-    \\(`register {topic: "tm_<txid>_<vout>", program: "mandala-topic"}`). The discovery topic `tm_mandala`
+    \\(`register {topic: "tm_mandala_<txid>_<vout>", program: "mandala-topic"}`), and its lookup
+    \\`ls_mandala_<txid>_<vout>` beside it (`registerLookup`). The discovery topic `tm_mandala`
     \\holds every token's deploy output.
     \\
     ;

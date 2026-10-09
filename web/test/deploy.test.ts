@@ -3,10 +3,11 @@ import { Mandala } from "@1sat/templates";
 import { LockingScript, PrivateKey, ProtoWallet, type CreateActionArgs, type WalletInterface } from "@bsv/sdk";
 import { createContext } from "@1sat-actions/types.js";
 import { deployMandala } from "@1sat-actions/mandala/deploy.js";
-import { baseUnits, deployInput, namesOf, outpointOf, type DeployForm } from "../src/deploy/payload";
+import { baseUnits, deployInput, iconOf, namesOf, type DeployForm } from "../src/deploy/payload";
 
 const txid = "ab".repeat(32);
-const form = (o: Partial<DeployForm>): DeployForm => ({ symbol: "TOK", decimals: "2", supply: "fixed", amount: "10.5", icon: "", ...o });
+const form = (o: Partial<DeployForm>): DeployForm => ({ symbol: "TOK", decimals: "2", supply: "fixed", amount: "10.5", ...o });
+const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
 
 describe("deploy payload", () => {
   it("whole units to base units", () => {
@@ -22,9 +23,14 @@ describe("deploy payload", () => {
   it("an authority deploy: amount 0, the amount field ignored", () => {
     expect(deployInput(form({ supply: "authority", amount: "x" }))).toEqual({ amount: "0", symbol: "TOK", decimals: 2 });
   });
-  it("an icon outpoint, either form, as txid_vout", () => {
-    expect(deployInput(form({ icon: `${txid.toUpperCase()}.3` })).icon).toBe(`${txid}_3`);
-    expect(() => outpointOf("abc_1")).toThrow(/icon/);
+  it("an icon: the image file embedded, {mediaType, bytes} (BRC-162 draft BRCs#308; no pointer forms)", () => {
+    expect(deployInput(form({ icon: { mediaType: "image/png", bytes: png } })).icon).toEqual({ mediaType: "image/png", bytes: png });
+    expect(iconOf({ mediaType: " Image/SVG+XML ", bytes: png })).toEqual({ mediaType: "image/svg+xml", bytes: png });
+    expect(deployInput(form({})).icon).toBeUndefined();
+    expect(() => iconOf({ mediaType: "text/html", bytes: png })).toThrow(/icon/);
+    expect(() => iconOf({ mediaType: "", bytes: png })).toThrow(/icon/);
+    expect(() => iconOf({ mediaType: "image/png;x=1", bytes: png })).toThrow(/icon/);
+    expect(() => iconOf({ mediaType: "image/png", bytes: new Uint8Array() })).toThrow(/empty/);
   });
   it("refusals name the field", () => {
     expect(() => deployInput(form({ symbol: " " }))).toThrow(/symbol/);
@@ -32,8 +38,8 @@ describe("deploy payload", () => {
     expect(() => deployInput(form({ amount: "0" }))).toThrow(/amount/);
     expect(() => deployInput(form({ decimals: "0", amount: "18446744073709551616" }))).toThrow(/2\^64/);
   });
-  it("the token's names: its id <txid>_0 (BRC-162 Token identification); its topic tm_<txid>_0", () => {
-    expect(namesOf(txid.toUpperCase())).toEqual({ tokenId: `${txid}_0`, topic: `tm_${txid}_0` });
+  it("the token's names: its id <txid>_0 (BRC-162 Token identification); its topic tm_mandala_<txid>_0 and lookup ls_mandala_<txid>_0 (BRC-207)", () => {
+    expect(namesOf(txid.toUpperCase())).toEqual({ tokenId: `${txid}_0`, topic: `tm_mandala_${txid}_0`, lookup: `ls_mandala_${txid}_0` });
   });
   it("the SDK action builds the deploy from it: output 0, the payload as given", async () => {
     const proto = new ProtoWallet(PrivateKey.fromHex("01".repeat(32)));
@@ -42,14 +48,14 @@ describe("deploy payload", () => {
       getPublicKey: (a: Parameters<ProtoWallet["getPublicKey"]>[0]) => proto.getPublicKey(a),
       createAction: async (a: CreateActionArgs) => { created.push(a); return {}; },
     } as unknown as WalletInterface;
-    const r = await deployMandala.execute(createContext(wallet), deployInput(form({ icon: `${txid}_1` })));
+    const r = await deployMandala.execute(createContext(wallet), deployInput(form({ icon: { mediaType: "image/png", bytes: png } })));
     expect(r.error).toBe("deploy-no-tx"); // the fake wallet returns no transaction; the args are what count
     expect(created).toHaveLength(1);
     const out = created[0]!.outputs![0]!;
     const t = Mandala.decode(LockingScript.fromHex(out.lockingScript));
     expect(t?.role).toBe("deploy");
     expect(t?.amount).toBe(1050n);
-    expect(t?.metadata).toEqual({ sym: "TOK", dec: 2, icon: `${txid}_1` });
+    expect(t?.metadata).toEqual({ sym: "TOK", dec: 2, icon: { mediaType: "image/png", bytes: png } });
     expect(created[0]!.options?.randomizeOutputs).toBe(false);
     expect(created[0]!.options?.noSend).toBeUndefined();
   });

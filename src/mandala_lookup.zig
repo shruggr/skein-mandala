@@ -1,7 +1,15 @@
-//! mandala-lookup: `ls_mandala`, the Mandala (BRC-162) lookup service
-//! (shruggr/skein#120 item 3). It indexes the outputs the Mandala topics
-//! admit, through the skein-overlay lookup hooks, under its own head
-//! `<app>/ls_mandala`, and answers three queries in the shapes of the ts-stack
+//! mandala-lookup: the Mandala (BRC-162) lookup program (shruggr/skein#120
+//! item 3). It indexes the outputs the Mandala topics admit, through the
+//! skein-overlay lookup hooks (once per admitted transaction and topic,
+//! skein-overlay 0.11.0), in one index, the head `<app>/ls_mandala`
+//! (`spec.index`), whatever name it is called as:
+//!
+//!   ls_mandala               the queries below
+//!   ls_mandala_deploys       the discovery lookup (below)
+//!   ls_mandala_<assetId>     a token's BRC-207 lookup, registered with the engine
+//!                            (`registerLookup`) beside its topic tm_mandala_<assetId>
+//!
+//! `ls_mandala` answers three queries in the shapes of the ts-stack
 //! Mandala lookup (packages/overlays/topics/src/mandala/MandalaLookupDocs.md.ts):
 //!
 //!   {tokenId, limit?, skip?}             the token's unspent value outputs, in outpoint order
@@ -26,6 +34,8 @@
 //!   values       tok ‖ op → null                 unspent value outputs
 //!   authorities  tok ‖ op → null                 unspent authority outputs and deploys
 //!   outputs      op → kind (0 value, 1 authority) ‖ tok [‖ spending txid, internal order]
+//!   admitted     tok ‖ op → null                 every output the token's topic validly admitted
+//!                                                (BRC-207: kept once spent, dropped on rejection)
 //!
 //! `admitted` classifies each admitted output by the BSV-21 rules for the
 //! topic's token (bsv21.zig `tokenOf`): a deploy or an authority goes in
@@ -35,13 +45,28 @@
 //! ones it had spent. A hook for a topic that is not a token's does nothing.
 //!
 //! The same program is the discovery lookup `ls_mandala_deploys` (by the
-//! service name it is called as): over `tm_mandala` only, the map
+//! service name it is called as; the hooks by the topic): over `tm_mandala` only, the map
 //!
 //!   deploys      tok → null                       every admitted deploy (a token id is its deploy outpoint)
 //!
 //! `admitted` adds each valid deploy output (token.zig `deployOf`), `spent`
 //! does nothing (a registry), `rejected` removes the transaction's deploys;
 //! `{tokenId}` answers the deploy output, an output-list of one.
+//!
+//! **BRC-207** (David Case, 2026-10-08): called as `ls_mandala_<assetId>`, it
+//! answers
+//!
+//!   {type: "mandala-spendability" | "mandala-admission", version: 1, assetId,
+//!    topic: "tm_mandala_<assetId>", outpoints: ["<txid>.<vout>", …]}
+//!
+//! validated strictly (these five keys and no other; version 1; assetId and
+//! topic exactly the service name's; each outpoint canonical BRC-36 dot form,
+//! lowercase, the index without leading zeros), as an output-list of exactly
+//! the queried outpoints, each once, in the query's order: spendability —
+//! those in `admitted` for the asset and unspent (the chain state names no
+//! spender, as the engine's `inTopic` reads it); admission — those in
+//! `admitted`, spent or not. An empty list is a valid "no". Any other query
+//! there is refused.
 const std = @import("std");
 const c = @import("chain");
 const lookup = @import("lookup");
@@ -56,6 +81,8 @@ const Service = lookup.Service;
 const eql = std.mem.eql;
 
 pub const service_name = "ls_mandala";
+/// The index every name of the program reads and writes (skein-overlay 0.11.0): `<app>/ls_mandala`.
+pub const index_name = service_name;
 /// The discovery topic's lookup (shruggr/skein#120 item 11): `{tokenId}` → the token's deploy output.
 pub const deploys_service = mandala.name.deploys_service;
 const deploys_topic = mandala.name.deploys_topic;
@@ -65,7 +92,8 @@ fn isDeploys(svc: *const Service) bool {
 }
 
 pub const spec: lookup.Spec = .{
-    .maps = &.{ "values", "authorities", "outputs", "deploys" },
+    .maps = &.{ "values", "authorities", "outputs", "deploys", "admitted" },
+    .index = index_name,
     .answer = answer,
     .admitted = admitted,
     .spent = spent,
@@ -119,9 +147,11 @@ fn kindOf(a: Allocator, id: bsv21.TokenId, tx: lookup.Tx, vout: u32) !?Kind {
     };
 }
 
+// The hooks come once per admitted transaction and topic, under whichever of the program's names
+// listens first (skein-overlay 0.11.0): they go by the topic, never by the name.
+
 fn admitted(a: Allocator, svc: *Service, topic: []const u8, tx: lookup.Tx, outputs_to_admit: []const u32, _: []const u32) anyerror!void {
-    if (isDeploys(svc)) {
-        if (!eql(u8, topic, deploys_topic)) return;
+    if (eql(u8, topic, deploys_topic)) {
         for (outputs_to_admit) |vout| {
             if (vout >= tx.tx.outputs.len) return error.BadArgs;
             const id = (try token.deployOf(a, tx.txid, vout, tx.tx.outputs[vout].locking_script.bytes)) orelse continue;
@@ -132,6 +162,8 @@ fn admitted(a: Allocator, svc: *Service, topic: []const u8, tx: lookup.Tx, outpu
     const id = token.tokenIdOf(topic) orelse return;
     const tk = tokKey(id);
     for (outputs_to_admit) |vout| {
+        if (vout >= tx.tx.outputs.len) return error.BadArgs;
+        try svc.map("admitted").add(try cat(a, &.{ &tk, &opKey(tx.txid, vout) }));
         const k = (try kindOf(a, id, tx, vout)) orelse continue;
         const op = opKey(tx.txid, vout);
         try svc.map("outputs").put(&op, .{ .bytes = try cat(a, &.{ &.{@intFromEnum(k)}, &tk }) });
@@ -148,7 +180,7 @@ fn entryOf(v: c.store.MValue) !Entry {
 }
 
 fn spent(a: Allocator, svc: *Service, topic: []const u8, outpoint: lookup.Outpoint, spending: lookup.Tx) anyerror!void {
-    if (isDeploys(svc)) return; // a registry: a deploy stays listed once spent
+    if (eql(u8, topic, deploys_topic)) return; // a registry: a deploy stays listed once spent
     _ = token.tokenIdOf(topic) orelse return;
     const op = opKey(outpoint.txid, outpoint.vout);
     const v = (try svc.map("outputs").get(&op)) orelse return; // not one it indexed
@@ -159,16 +191,16 @@ fn spent(a: Allocator, svc: *Service, topic: []const u8, outpoint: lookup.Outpoi
 }
 
 fn rejected(a: Allocator, svc: *Service, topic: []const u8, tx: lookup.Tx) anyerror!void {
-    if (isDeploys(svc)) {
-        if (!eql(u8, topic, deploys_topic)) return;
+    if (eql(u8, topic, deploys_topic)) {
         for (tx.tx.outputs, 0..) |o, vout| {
             const id = (try token.deployOf(a, tx.txid, @intCast(vout), o.locking_script.bytes)) orelse continue;
             _ = try svc.map("deploys").remove(&tokKey(id));
         }
         return;
     }
-    _ = token.tokenIdOf(topic) orelse return;
-    // Its outputs vanish.
+    const id = token.tokenIdOf(topic) orelse return;
+    // Its outputs vanish: never validly admitted (BRC-207 admission).
+    for (0..tx.tx.outputs.len) |vout| _ = try svc.map("admitted").remove(try cat(a, &.{ &tokKey(id), &opKey(tx.txid, @intCast(vout)) }));
     for (0..tx.tx.outputs.len) |vout| {
         const op = opKey(tx.txid, @intCast(vout));
         const v = (try svc.map("outputs").get(&op)) orelse continue;
@@ -254,7 +286,75 @@ pub fn parseDeploysQuery(q: Value) !bsv21.TokenId {
     return (try tokenField(q, "tokenId")) orelse error.UnsupportedQuery;
 }
 
-pub fn answer(a: Allocator, svc: *Service, _: *lookup.Chain, query: Value) anyerror!lookup.Answer {
+// ---------------------------------------------------------------- BRC-207 (ls_mandala_<assetId>)
+
+/// The two BRC-207 queries.
+pub const Brc207Type = enum { spendability, admission };
+
+/// A BRC-207 query, checked against the service it was sent to: its type and the queried
+/// outpoints, each once, in the query's order.
+pub const Brc207 = struct { kind: Brc207Type, id: bsv21.TokenId, outpoints: []const lookup.Output };
+
+const brc207_keys = [_][]const u8{ "type", "version", "assetId", "topic", "outpoints" };
+
+/// A canonical BRC-36 outpoint, `<txid>.<vout>`: 64 lowercase hex characters in display order, a
+/// dot, the output index in decimal without leading zeros, at most 2^32 - 1. Null for anything else.
+pub fn outpointOfDot(t: []const u8) ?lookup.Output {
+    if (t.len < 66 or t[64] != '.') return null;
+    const v = t[65..];
+    if (v.len > 1 and v[0] == '0') return null;
+    for (v) |ch| if (!std.ascii.isDigit(ch)) return null;
+    const vout = std.fmt.parseInt(u32, v, 10) catch return null;
+    const id = mandala.name.idOfHex(t[0..64]) orelse return null;
+    return .{ .txid = id, .vout = vout };
+}
+
+/// A BRC-207 query sent to `service` (`ls_mandala_<assetId>`), validated strictly: exactly the keys
+/// type, version, assetId, topic, outpoints; `type` "mandala-spendability" or "mandala-admission";
+/// `version` 1; `assetId` and `topic` the service's own (`<assetId>`, `tm_mandala_<assetId>`);
+/// `outpoints` a list of canonical `<txid>.<vout>`. Anything else: error.BadQuery.
+pub fn parse207(a: Allocator, service: []const u8, q: Value) !Brc207 {
+    const sid = mandala.name.tokenIdOfLookup(service) orelse return error.UnknownService;
+    if (q != .map or q.map.len != brc207_keys.len) return error.BadQuery;
+    for (q.map) |e| {
+        for (brc207_keys) |k| {
+            if (eql(u8, e.key, k)) break;
+        } else return error.BadQuery;
+    }
+    const t = q.getText("type") orelse return error.BadQuery;
+    const kind: Brc207Type = if (eql(u8, t, "mandala-spendability")) .spendability else if (eql(u8, t, "mandala-admission")) .admission else return error.BadQuery;
+    const ver = q.get("version") orelse return error.BadQuery;
+    if (ver != .uint or ver.uint != 1) return error.BadQuery;
+    var ib: [mandala.name.max_suffix_len]u8 = undefined;
+    var tb: [mandala.name.max_topic_len]u8 = undefined;
+    if (!eql(u8, q.getText("assetId") orelse return error.BadQuery, mandala.name.tokenIdText(&ib, sid))) return error.BadQuery;
+    if (!eql(u8, q.getText("topic") orelse return error.BadQuery, mandala.name.topicName(&tb, sid))) return error.BadQuery;
+    const ops = q.getArray("outpoints") orelse return error.BadQuery;
+    var out: std.ArrayList(lookup.Output) = .empty;
+    outer: for (ops) |o| {
+        if (o != .text) return error.BadQuery;
+        const op = outpointOfDot(o.text) orelse return error.BadQuery;
+        for (out.items) |x| if (x.vout == op.vout and eql(u8, &x.txid, &op.txid)) continue :outer;
+        try out.append(a, op);
+    }
+    return .{ .kind = kind, .id = token.tokenIdOfLookup(service).?, .outpoints = out.items };
+}
+
+/// A BRC-207 answer: of the queried outpoints, those the asset's topic validly admitted (`admitted`)
+/// and, for spendability, that the chain state names no spender for (as the engine's `inTopic`).
+pub fn answer207(a: Allocator, svc: *Service, ch: *lookup.Chain, q: Brc207) ![]const lookup.Output {
+    const tk = tokKey(q.id);
+    var out: std.ArrayList(lookup.Output) = .empty;
+    for (q.outpoints) |o| {
+        if (!(try svc.map("admitted").has(try cat(a, &.{ &tk, &opKey(o.txid, o.vout) })))) continue;
+        if (q.kind == .spendability and (try ch.spentBy(o.txid, o.vout)) != null) continue;
+        try out.append(a, o);
+    }
+    return out.items;
+}
+
+pub fn answer(a: Allocator, svc: *Service, ch: *lookup.Chain, query: Value) anyerror!lookup.Answer {
+    if (mandala.name.tokenIdOfLookup(svc.name) != null) return .{ .output_list = try answer207(a, svc, ch, try parse207(a, svc.name, query)) };
     if (isDeploys(svc)) {
         const id = try parseDeploysQuery(query);
         if (!(try svc.map("deploys").has(&tokKey(id)))) return .{ .output_list = &.{} };
@@ -272,7 +372,15 @@ pub fn answer(a: Allocator, svc: *Service, _: *lookup.Chain, query: Value) anyer
     }
 }
 
-pub fn metadata(_: Allocator, service: []const u8) anyerror!lookup.Metadata {
+pub fn metadata(a: Allocator, service: []const u8) anyerror!lookup.Metadata {
+    if (mandala.name.tokenIdOfLookup(service)) |id| {
+        var tb: [mandala.name.max_suffix_len]u8 = undefined;
+        return .{
+            .short_description = try std.fmt.allocPrint(a, "Mandala token {s} (BRC-207): mandala-spendability and mandala-admission over its topic tm_mandala_{s}.", .{ mandala.name.tokenIdText(&tb, id), mandala.name.tokenIdText(&tb, id) }),
+            .version = version,
+            .information_url = "https://github.com/shruggr/skein-mandala",
+        };
+    }
     if (eql(u8, service, deploys_service)) return .{
         .short_description = "Mandala token deploys: a token id's deploy output, with the metadata it was deployed with.",
         .version = version,
@@ -288,6 +396,30 @@ pub fn metadata(_: Allocator, service: []const u8) anyerror!lookup.Metadata {
 pub const version = "0.4.0";
 
 pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
+    if (mandala.name.tokenIdOfLookup(service) != null) return
+    \\# Mandala token lookup service (ls_mandala_<assetId>)
+    \\
+    \\A token's BRC-207 lookup, beside its topic `tm_mandala_<assetId>`; `<assetId>` is the token id
+    \\`<txid>_<vout>` (`<txid>_0` at output 0).
+    \\
+    \\## Queries
+    \\
+    \\```json
+    \\{"type": "mandala-spendability", "version": 1, "assetId": "<assetId>",
+    \\ "topic": "tm_mandala_<assetId>", "outpoints": ["<txid>.<vout>"]}
+    \\```
+    \\
+    \\- `mandala-spendability`: of the queried outpoints, exactly those currently admitted to the
+    \\  topic and unspent, each once, in the query's order. An empty list is a valid "no".
+    \\- `mandala-admission`: the same shape; those ever validly admitted to the topic, spent or not
+    \\  (a rejected transaction's outputs never were).
+    \\
+    \\Exactly these five keys; `version` 1; `assetId` and `topic` this service's own; each outpoint
+    \\in canonical BRC-36 form (64 lowercase hex characters, a dot, the output index without
+    \\leading zeros). Anything else is refused. Answers are output-lists, each output with its
+    \\transaction's BEEF.
+    \\
+    ;
     if (eql(u8, service, deploys_service)) return
     \\# Mandala token deploys lookup service (ls_mandala_deploys)
     \\
@@ -304,7 +436,7 @@ pub fn documentation(_: Allocator, service: []const u8) anyerror![]const u8 {
     return
     \\# Mandala token lookup service (ls_mandala)
     \\
-    \\Indexes the outputs the Mandala token topics (`tm_<txid>_<vout>`) admit, by token id and
+    \\Indexes the outputs the Mandala token topics (`tm_mandala_<txid>_<vout>`) admit, by token id and
     \\outpoint. A token id is the deploy outpoint, the txid in display byte order,
     \\lowercase, written `<txid>_<vout>` for every token, `<txid>_0` included (BRC-162 "Token
     \\identification": the bare 32-byte txid is the wire form only). A query takes any of
@@ -364,9 +496,11 @@ pub fn parseTokensQuery(a: Allocator, query: []const u8, body: []const u8) !Toke
     return q;
 }
 
-/// One token on the list: its id `<txid>_<vout>` (`_0` included), its topic, the deploy's display fields
-/// (`sym` "" and `dec` 0 when the deploy carries none), its icon as an outpoint `<txid>_<vout>` (a
-/// BRC-162 icon by output index is that output of the deploy transaction), the deploy outpoint.
+/// One token on the list: its id `<txid>_<vout>` (`_0` included), its topic `tm_mandala_<id>`, the
+/// deploy's display fields (`sym` "" and `dec` 0 when the deploy carries none), its icon — a binary
+/// (BRC-162) deploy's embedded image as a data URL `data:<mediaType>;base64,…` (absent when its
+/// media type is not an RFC 6838 `type/subtype`), a BRC-161 JSON deploy's `icon` string as written —
+/// and the deploy outpoint.
 pub const Listed = struct {
     tokenId: []const u8,
     topic: []const u8,
@@ -427,10 +561,7 @@ fn listedOf(a: Allocator, s: c.store.Store, key: []const u8) !?Listed {
             const m = mandala.brc162.metadataOf(t.binary.?.payload orelse "");
             out.sym = m.sym orelse "";
             out.dec = m.dec orelse 0;
-            if (m.icon) |ic| out.icon = switch (ic) {
-                .outpoint => |o| try std.fmt.allocPrint(a, "{s}_{d}", .{ try hexOf(a, o.txid), o.vout }),
-                .output => |n| try std.fmt.allocPrint(a, "{s}_{d}", .{ out.txid, n }),
-            };
+            if (m.icon) |ic| out.icon = try dataUrlOf(a, ic);
         },
         .json => {
             const j = t.json.?;
@@ -442,13 +573,37 @@ fn listedOf(a: Allocator, s: c.store.Store, key: []const u8) !?Listed {
     return out;
 }
 
+/// An embedded icon as a data URL, `data:<mediaType>;base64,<bytes>`; null when the media type is not
+/// an RFC 6838 `type/subtype` (restricted-name characters), which a data URL could not carry as is.
+pub fn dataUrlOf(a: Allocator, ic: mandala.brc162.Icon) !?[]const u8 {
+    if (!isMediaType(ic.media_type)) return null;
+    const enc = std.base64.standard.Encoder;
+    const out = try a.alloc(u8, "data:".len + ic.media_type.len + ";base64,".len + enc.calcSize(ic.bytes.len));
+    const head = try std.fmt.bufPrint(out, "data:{s};base64,", .{ic.media_type});
+    _ = enc.encode(out[head.len..], ic.bytes);
+    return out;
+}
+
+/// RFC 6838 §4.2: `type "/" subtype`, each a restricted-name (1 to 127 characters: a letter or
+/// digit, then letters, digits and ! # $ & - ^ _ . +).
+pub fn isMediaType(t: []const u8) bool {
+    const slash = std.mem.indexOfScalar(u8, t, '/') orelse return false;
+    return restrictedName(t[0..slash]) and restrictedName(t[slash + 1 ..]);
+}
+
+fn restrictedName(n: []const u8) bool {
+    if (n.len == 0 or n.len > 127 or !std.ascii.isAlphanumeric(n[0])) return false;
+    for (n[1..]) |ch| if (!std.ascii.isAlphanumeric(ch) and std.mem.indexOfScalar(u8, "!#$&-^_.+", ch) == null) return false;
+    return true;
+}
+
 /// The token list (shruggr/skein#120, decided 2026-10-06: a read function of the Mandala
 /// components, not a BRC-24 query): every deploy the discovery topic `tm_mandala` admitted (the
-/// map `deploys` of `ls_mandala_deploys`, its state record `deploys_state`), newest first by the
+/// map `deploys` of the program's index, its state record `deploys_state`), newest first by the
 /// chain state (`chain_state`; unmined first, then by block height and position, highest first),
 /// `skip` then `limit` of them. Reads only.
 pub fn tokens(a: Allocator, s: c.store.Store, deploys_state: ?[]const u8, chain_state: ?[]const u8, q: TokensQuery) ![]const Listed {
-    var svc = try Service.load(a, s, deploys_service, spec.maps, deploys_state);
+    var svc = try Service.loadIndex(a, s, deploys_service, index_name, spec.maps, deploys_state);
     var net: c.chain.Network = .main;
     if (chain_state) |r| net = c.chain.Network.parse((try s.getValue(a, r)).getText("network") orelse "") orelse return error.BadChainState;
     var ch = try lookup.Chain.load(a, s, chain_state, net);
@@ -483,7 +638,7 @@ fn respond(a: Allocator, status: u64, body: []const u8) !Value {
 
 /// The read `/<app>/mandala/tokens` (the route handler contract, any method): `{limit?, skip?}` →
 /// 200 `[{tokenId, topic, sym, dec, icon?, txid, vout}]`, or 400 `{status: "error", message}`.
-/// `deploys_state` is the head `<app>/ls_mandala_deploys`'s record, `chain_state` the head `chain/state`'s.
+/// `deploys_state` is the program's index's record (the head `<app>/ls_mandala`), `chain_state` the head `chain/state`'s.
 pub fn tokensRoute(a: Allocator, s: c.store.Store, deploys_state: ?[]const u8, chain_state: ?[]const u8, req: Value) !Value {
     const q = parseTokensQuery(a, req.getText("query") orelse "", req.getBytes("body") orelse "") catch
         return respond(a, 400, "{\"status\":\"error\",\"message\":\"the query is {limit?: 1..100, skip?: 0..100000}, in the query string or a JSON body\"}");
@@ -514,7 +669,7 @@ fn run(a: Allocator) anyerror!void {
     const req = try sk.callArg(a, in);
     const s = sk.store();
     const app = try appOfRead(a, s, req);
-    const deploys = try sk.head(a, try lookup.headName(a, app, deploys_service));
+    const deploys = try sk.head(a, try lookup.headName(a, app, index_name));
     const out = try tokensRoute(a, s, deploys, try sk.head(a, lookup.chain_head), req);
     // A read route's filter (shruggr/skein#143): the http answer as the filter's `{answer: …}`.
     try sk.answer(a, if (isFilter(in)) try asFilterAnswer(a, out) else out);

@@ -8,10 +8,15 @@ const std = @import("std");
 const bsv21 = @import("bsv21.zig");
 const name = @import("name.zig");
 
-/// The token a topic name carries (`tm_<txid>_0` native, `tm_<txid>_<vout>`
-/// legacy, name.zig), as the rules take it.
+/// The token a topic name carries (`tm_mandala_<txid>_0` native,
+/// `tm_mandala_<txid>_<vout>` legacy, name.zig), as the rules take it.
 pub fn tokenIdOf(topic: []const u8) ?bsv21.TokenId {
     return fromName(name.tokenIdOf(topic) orelse return null);
+}
+
+/// The token a lookup service name carries (`ls_mandala_<txid>_<vout>`, name.zig), as the rules take it.
+pub fn tokenIdOfLookup(service: []const u8) ?bsv21.TokenId {
+    return fromName(name.tokenIdOfLookup(service) orelse return null);
 }
 
 /// The token a token id string names (`<txid>`, `<txid>_<vout>`, `<txid>.<vout>`; name.zig

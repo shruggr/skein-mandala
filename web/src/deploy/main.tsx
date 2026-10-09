@@ -4,7 +4,9 @@
  * wallet signs and broadcasts it and files it (basket and labels
  * `mandala <txid> 0`). The page then submits the deploy to the overlay it is
  * served from under the discovery topic only (`tm_mandala`): its own topic
- * `tm_<txid>_0` did not exist before this transaction, so nobody serves it yet.
+ * `tm_mandala_<txid>_0` did not exist before this transaction, so nobody serves it yet.
+ * The icon is an image file, embedded in the deploy (`{mediaType, bytes}`,
+ * BRC-162 draft bsv-blockchain/BRCs#308).
  * The submit is a plain `fetch`, unsigned: the skein admits an unsigned POST
  * at the overlay's `submit` row, whose filter validates the BEEF
  * (shruggr/skein#135).
@@ -16,7 +18,7 @@ import { deployMandala, fileMandalaDeploy } from "@1sat-actions/mandala/deploy.j
 import { mount } from "../shell";
 import { whereOf } from "../where";
 import { DISCOVERY, appBaseOf, submitBeef } from "../overlay";
-import { deployInput, namesOf, type DeployForm } from "./payload";
+import { deployInput, namesOf, type DeployForm, type Icon } from "./payload";
 import { Id, Ids } from "../Id";
 
 type Done = { txid: string; tx?: number[]; error?: string; submitted?: string; submitErr?: string };
@@ -33,11 +35,21 @@ async function submitDeploy(tx: number[] | undefined): Promise<{ submitted?: str
 
 function DeployPage() {
   const { wallet, status } = useWallet();
-  const [f, setF] = useState<DeployForm>({ symbol: "", decimals: "0", supply: "fixed", amount: "", icon: "" });
+  const [f, setF] = useState<DeployForm>({ symbol: "", decimals: "0", supply: "fixed", amount: "" });
+  const [iconUrl, setIconUrl] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [done, setDone] = useState<Done>();
   const set = (k: keyof DeployForm) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+
+  /** The image file chosen: read as its media type and bytes, previewed. */
+  async function pickIcon(file: File | undefined) {
+    if (iconUrl) URL.revokeObjectURL(iconUrl);
+    if (!file) { setF({ ...f, icon: undefined }); setIconUrl(undefined); return; }
+    const icon: Icon = { mediaType: file.type, bytes: new Uint8Array(await file.arrayBuffer()) };
+    setF({ ...f, icon });
+    setIconUrl(URL.createObjectURL(file));
+  }
 
   let problem = "";
   try { deployInput(f); } catch (e) { problem = (e as Error).message; }
@@ -85,7 +97,8 @@ function DeployPage() {
         {f.supply === "fixed" && (
           <label>Amount, in whole tokens{Number(f.decimals) > 0 ? ` (up to ${f.decimals} decimal places)` : ""}<input type="text" inputMode="decimal" value={f.amount} onChange={set("amount")} /></label>
         )}
-        <label>Icon (optional): an outpoint holding the image, <code>txid.vout</code><input type="text" value={f.icon} onChange={set("icon")} /></label>
+        <label>Icon (optional): an image, embedded in the deploy{f.icon ? ` (${f.icon.mediaType}, ${f.icon.bytes.length} bytes)` : ""}<input type="file" accept="image/*" onChange={(e) => void pickIcon(e.target.files?.[0])} /></label>
+        {iconUrl && <img src={iconUrl} alt="" width={48} height={48} />}
         <div className="row">
           <button type="button" className="go" disabled={status !== "connected" || busy || problem !== ""} onClick={deploy}>{busy ? "Deploying…" : "Deploy"}</button>
           {status !== "connected" ? <span className="mut small">Connect a wallet first.</span> : problem ? <span className="mut small">{problem}</span> : null}
@@ -99,6 +112,7 @@ function DeployPage() {
             <tr><th>transaction</th><td><Id value={done.txid} /></td></tr>
             <tr><th>token id</th><td><Id value={names.tokenId} /></td></tr>
             <tr><th>topic to register</th><td><Id value={names.topic} /></td></tr>
+            <tr><th>its lookup</th><td><Id value={names.lookup} /></td></tr>
           </tbody></table>
           {done.error ? (
             <p className="status bad">Broadcast, not filed in your wallet: <Ids text={done.error} /> <button type="button" disabled={busy} onClick={refile}>File it again</button></p>
@@ -110,7 +124,7 @@ function DeployPage() {
           ) : done.submitErr ? (
             <p className="status bad">Not submitted to this overlay: <Ids text={done.submitErr} /> <button type="button" disabled={busy} onClick={resubmit}>Submit again</button></p>
           ) : null}
-          <p className="mut small">An overlay serves the token once its root registers the topic <Id value={names.topic} /> (<a href="../tokens/">Tokens on this overlay</a>).</p>
+          <p className="mut small">An overlay serves the token once its root registers the topic <Id value={names.topic} /> and its lookup <Id value={names.lookup} /> (<a href="../tokens/">Tokens on this overlay</a>).</p>
         </div>
       )}
     </>

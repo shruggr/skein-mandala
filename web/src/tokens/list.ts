@@ -1,13 +1,23 @@
 /**
- * The topics this overlay serves: the overlay engine's registered set
- * (skein-overlay 0.6.0, docs/OVERLAY.md "Register a topic"), the messages
- * that change it, the answers. Pure; the page sends and reads.
+ * The tokens this overlay serves: the overlay engine's registered topics
+ * and lookup services (skein-overlay 0.6.0 / 0.11.0, docs/OVERLAY.md
+ * "Register a topic", "Register a lookup service"), the messages that change
+ * them, the answers. Pure; the page sends and reads.
  *
- * The set is the engine's head `<app>/topics`, `{kind: "overlay-topics",
- * topics: [{topic, program}]}`. A message to the app's box `<app>/register` (skein-overlay 0.7.7): `{fn:
- * "register", args: {topic, program: "mandala-topic", seed?}}` or `{fn:
- * "deregister", args: {topic}}`, the topic a token's `tm_<txid>_<vout>`
- * (`tm_<txid>_0` at output 0) or `tm_mandala`. A token's register seeds its topic with its deploy
+ * A token is two registrations (BRC-207; David Case, 2026-10-08): its topic
+ * `tm_mandala_<assetId>` (judged by mandala-topic) and its lookup
+ * `ls_mandala_<assetId>` (answered by mandala-lookup), the asset id
+ * `<txid>_<vout>` (`<txid>_0` at output 0). Registered in that order,
+ * deregistered in the reverse (`registerToken`, `deregisterToken`).
+ *
+ * The topic set is the engine's head `<app>/topics`, `{kind: "overlay-topics",
+ * topics: [{topic, program}]}`; the lookup set `<app>/lookups`, `{kind:
+ * "overlay-lookups", lookups: [{service, program, topics?}]}`. Messages to the
+ * app's box `<app>/register` (skein-overlay 0.7.7): `{fn: "register", args:
+ * {topic, program: "mandala-topic", seed?}}`, `{fn: "deregister", args:
+ * {topic}}`, `{fn: "registerLookup", args: {service, program:
+ * "mandala-lookup", topics}}`, `{fn: "deregisterLookup", args: {service}}`;
+ * the topic a token's `tm_mandala_<txid>_<vout>` or `tm_mandala`. A token's register seeds its topic with its deploy
  * (skein-overlay 0.7.8): `seed: [<the deploy txid>]`, judged from what the
  * instance's chain state holds. The step's answer is its result record (its
  * CID on stdout): `{kind: "overlay-result", op, topic, active, changed,
@@ -18,28 +28,48 @@
 export const DISCOVERY = "tm_mandala";
 /** The role in the app's `programs` that judges a Mandala topic. */
 export const PROGRAM = "mandala-topic";
+/** The role in the app's `programs` that answers a token's lookup (`ls_mandala_<assetId>`). */
+export const LOOKUP_PROGRAM = "mandala-lookup";
+/** A token's topic and lookup: the prefix before its asset id (BRC-207). */
+export const TOPIC_PREFIX = "tm_mandala_";
+export const LOOKUP_PREFIX = "ls_mandala_";
 
 export type Call =
   | { fn: "register"; args: { topic: string; program: string; seed?: string[] } }
-  | { fn: "deregister"; args: { topic: string } };
+  | { fn: "deregister"; args: { topic: string } }
+  | { fn: "registerLookup"; args: { service: string; program: string; topics: string[] } }
+  | { fn: "deregisterLookup"; args: { service: string } };
+
+const TOKEN_TOPIC = /^tm_mandala_([0-9a-f]{64})_(0|[1-9]\d*)$/;
 
 /**
- * A token's topic as typed: `tm_<tokenId>`, `tm_<txid>_<vout>` for every token
- * (`tm_<txid>_0` a token deployed at output 0, any other vout a BRC-161 token
- * deployed there; David 2026-10-08); 64 lowercase hex. The bare `tm_<txid>` is no topic.
+ * A token's topic as typed: `tm_mandala_<assetId>`, `tm_mandala_<txid>_<vout>` for
+ * every token (`tm_mandala_<txid>_0` a token deployed at output 0, any other
+ * vout a BRC-161 token deployed there); 64 lowercase hex. The old
+ * `tm_<txid>_<vout>` is no topic (no alias).
  */
 export function tokenTopicOf(text: string): string {
   const t = text.trim();
-  const m = /^tm_[0-9a-f]{64}_(0|[1-9]\d*)$/.exec(t);
-  if (!m || Number(m[1]) > 0xffffffff) {
-    throw new Error("a token's topic: tm_<txid>_<vout> (64 lowercase hex characters; tm_<txid>_0 at output 0)");
+  const m = TOKEN_TOPIC.exec(t);
+  if (!m || Number(m[2]) > 0xffffffff) {
+    throw new Error("a token's topic: tm_mandala_<txid>_<vout> (64 lowercase hex characters; tm_mandala_<txid>_0 at output 0)");
   }
   return t;
 }
 
-/** The deploy txid a token's topic names: `tm_<txid>_<vout>` → `<txid>`. */
+/** The asset id a token's topic names: `tm_mandala_<txid>_<vout>` → `<txid>_<vout>`. */
+export function assetIdOf(topic: string): string {
+  return tokenTopicOf(topic).slice(TOPIC_PREFIX.length);
+}
+
+/** The deploy txid a token's topic names: `tm_mandala_<txid>_<vout>` → `<txid>`. */
 export function deployTxidOf(topic: string): string {
-  return tokenTopicOf(topic).slice(3, 67);
+  return assetIdOf(topic).slice(0, 64);
+}
+
+/** A token's lookup service, beside its topic: `tm_mandala_<assetId>` → `ls_mandala_<assetId>`. */
+export function lookupOf(topic: string): string {
+  return LOOKUP_PREFIX + assetIdOf(topic);
 }
 
 /** Register a token's topic, judged by mandala-topic, seeded with its deploy (skein-overlay 0.7.8). */
@@ -48,9 +78,26 @@ export function register(topic: string): Call {
   return { fn: "register", args: { topic: t, program: PROGRAM, seed: [deployTxidOf(t)] } };
 }
 
+/** Register a token's lookup `ls_mandala_<assetId>`, answered by mandala-lookup, hearing its topic (skein-overlay 0.11.0). */
+export function registerLookup(topic: string): Call {
+  const t = tokenTopicOf(topic);
+  return { fn: "registerLookup", args: { service: lookupOf(t), program: LOOKUP_PROGRAM, topics: [t] } };
+}
+
+/** A token registered: its topic, then its lookup. */
+export function registerToken(topic: string): Call[] {
+  return [register(topic), registerLookup(topic)];
+}
+
 /** Deregister a topic. */
 export function deregister(topic: string): Call {
   return { fn: "deregister", args: { topic } };
+}
+
+/** A token deregistered: the reverse of `registerToken`, its lookup, then its topic. */
+export function deregisterToken(topic: string): Call[] {
+  const t = tokenTopicOf(topic);
+  return [{ fn: "deregisterLookup", args: { service: lookupOf(t) } }, deregister(t)];
 }
 
 /** The discovery topic switched on or off. */
@@ -79,6 +126,17 @@ export function topicsOf(record: unknown): string[] {
   return registeredOf(record).filter((e) => e.program === PROGRAM).map((e) => e.topic);
 }
 
+/** The registered lookup set's record (`<app>/lookups`): the services mandala-lookup answers; [] for none. */
+export function lookupsOf(record: unknown): string[] {
+  if (record === undefined) return [];
+  const r = record as { kind?: unknown; lookups?: unknown };
+  const ok = (e: unknown) => typeof (e as { service?: unknown })?.service === "string" && typeof (e as { program?: unknown })?.program === "string";
+  if (r.kind !== "overlay-lookups" || !Array.isArray(r.lookups) || !r.lookups.every(ok)) {
+    throw new Error('the head is not the registered lookups ({kind: "overlay-lookups", lookups: [{service, program, topics?}]})');
+  }
+  return (r.lookups as Array<{ service: string; program: string }>).filter((e) => e.program === LOOKUP_PROGRAM).map((e) => e.service);
+}
+
 /**
  * A register's seeding (skein-overlay 0.7.8): `seeded` the seeds the topic
  * holds now, `missing` the seeds the instance's chain state does not hold,
@@ -91,6 +149,7 @@ export interface Seeding {
 }
 
 export type Answer = { ok: true; topic: string; active: boolean; seeding?: Seeding } | { ok: false; message: string };
+export type LookupAnswer = { ok: true; service: string; active: boolean } | { ok: false; message: string };
 
 const txids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
@@ -103,6 +162,14 @@ export function answerOf(v: unknown): Answer {
     if (r.seeded !== undefined || r.missing !== undefined) a.seeding = { seeded: txids(r.seeded), missing: txids(r.missing), untaken: txids(r.untaken) };
     return a;
   }
+  return { ok: false, message: `an answer not in the overlay-result shape: ${JSON.stringify(v)}` };
+}
+
+/** A registerLookup / deregisterLookup step's result record (skein-overlay 0.11.0): `{service, active}`, or the refusal. */
+export function lookupAnswerOf(v: unknown): LookupAnswer {
+  const r = (v ?? {}) as { kind?: unknown; service?: unknown; active?: unknown; error?: unknown };
+  if (r.kind === "overlay-result" && r.error !== undefined) return { ok: false, message: String(r.error) };
+  if (r.kind === "overlay-result" && typeof r.service === "string" && typeof r.active === "boolean") return { ok: true, service: r.service, active: r.active };
   return { ok: false, message: `an answer not in the overlay-result shape: ${JSON.stringify(v)}` };
 }
 

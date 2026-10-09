@@ -9,11 +9,11 @@ app; one topic per token; the protocol first; governance later, per token.
 
 | component | file | role | what |
 |---|---|---|---|
-| topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_<txid>_<vout>` by the token rules |
-| lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its own index; `ls_mandala_deploys`: a token's deploy output; fn `tokens`: the token list, a read (0.7.0) |
+| topic manager | `bin/mandala-topic.wasm`, `src/mandala_topic.zig` | `mandala-topic` | judges `tm_mandala_<assetId>` by the token rules |
+| lookup service | `bin/mandala-lookup.wasm`, `src/mandala_lookup.zig` | `mandala-lookup` | `ls_mandala`: three queries over its index; `ls_mandala_deploys`: a token's deploy output; `ls_mandala_<assetId>`: BRC-207's two queries (0.9.0); fn `tokens`: the token list, a read (0.7.0); one index, `<app>/ls_mandala`, for every name |
 | discovery topic | the same program as the topic manager | `mandala-topic` | `tm_mandala`: every token's deploy output |
 | the library | `src/lib.zig` (module `mandala`) | | the parsers, the rules, topic names, the verdict |
-| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.10.0: serves the topics, keeps the registered set (`register` / `deregister`) |
+| the engine | `bin/overlay.wasm` | `overlay` | shruggr/skein-overlay 0.11.0: serves the topics and lookups, keeps the registered sets (`register` / `deregister`, `registerLookup` / `deregisterLookup`) |
 
 The topic manager and the lookup service are programs on skein-overlay's
 contracts (`topic`, `lookup`). An app carries them in its tree with the
@@ -22,21 +22,26 @@ another app"). This repo's `etc/app.json` is a manifest of the three alone.
 
 ## The topic
 
-**Names** (`src/name.zig`). A token's topic is `tm_<tokenId>`, its id
-`<txid>_<vout>` for every token, `_0` included (David, 2026-10-08: "that
-was the decision all along"). `<txid>` is the deploy txid, 64 lowercase hex
-characters in display order; `<vout>` decimal without leading zeros.
+**Names** (`src/name.zig`; BRC-207 "Overlay spendability contract", David
+Case, 2026-10-08). A token's topic is `tm_mandala_<assetId>` and its lookup
+`ls_mandala_<assetId>`, the asset id its token id `<txid>_<vout>`, `_0`
+included. `<txid>` is the deploy txid, 64 lowercase hex characters in
+display order; `<vout>` decimal without leading zeros.
 
-- `tm_<txid>_0`: a token deployed at output 0. Its genesis is a binary
-  deploy (id `OP_0`) or a BRC-161 `deploy+mint` / `deploy+auth`
+- `tm_mandala_<txid>_0`: a token deployed at output 0. Its genesis is a
+  binary deploy (id `OP_0`) or a BRC-161 `deploy+mint` / `deploy+auth`
   inscription there; on the wire its id is the 32-byte txid.
   BRC-162 "Token identification": a BRC-161 token deployed at output 0 is
   the same token in both forms.
-- `tm_<txid>_<vout>`: a token deployed under BRC-161 at a non-zero output.
-  Its binary outputs carry the 36-byte id, the only tokens that have one.
-- The bare `tm_<txid>` is not a topic name, neither produced nor taken
-  (0.8.2; it was output 0's topic until 0.8.1). Names derived from a topic
-  follow it: `tm_<txid>_0-live`.
+- `tm_mandala_<txid>_<vout>`: a token deployed under BRC-161 at a non-zero
+  output. Its binary outputs carry the 36-byte id, the only tokens that
+  have one.
+- `tm_mandala` is the discovery topic and `ls_mandala_deploys` its lookup
+  (below): neither carries an asset id, so neither is a token's (a token's
+  name is the prefix `tm_mandala_` / `ls_mandala_` followed by one).
+- 0.8.2's `tm_<txid>_<vout>` and the bare `tm_<txid>` (until 0.8.1) are not
+  topic names, neither produced nor taken: no alias. Names derived from a
+  topic follow it: `tm_mandala_<txid>_0-live`.
 
 **Token ids** (`src/name.zig` `tokenIdOfString`, `tokenIdText`). A token id
 is the deploy outpoint, written `<txid>_<vout>` for every token, Mandala and
@@ -81,6 +86,12 @@ the rule above in markdown.
 
 ## The lookup
 
+One program, `mandala-lookup`, serves three kinds of name and keeps one
+index for all of them, the head `<app>/ls_mandala` (its `spec.index`;
+skein-overlay 0.11.0: the engine's hooks reach the program once per
+admitted transaction and topic, whatever its names, and every name reads
+the one index). The hooks go by the topic, never by the name.
+
 `ls_mandala`, the query shapes of the ts-stack Mandala lookup
 (`packages/overlays/topics/src/mandala/MandalaLookupDocs.md.ts`). The first
 key present, in this order, answers:
@@ -103,7 +114,7 @@ key present, in this order, answers:
   handles one. A client writes the token's id `<txid>_<vout>` (`<txid>_0`
   at output 0) whatever the form of its deploy.
 
-**The index** is three maps under the head `<app>/ls_mandala`, kept by the
+**The index** is five maps under the head `<app>/ls_mandala`, kept by the
 lookup hooks the engine calls in the step that admits or rejects:
 
 | map | key | value |
@@ -111,6 +122,8 @@ lookup hooks the engine calls in the step that admits or rejects:
 | `values` | token ‖ outpoint | — |
 | `authorities` | token ‖ outpoint | — |
 | `outputs` | outpoint | kind ‖ token, then the spender's txid once spent |
+| `admitted` | token ‖ outpoint | — (every output the token's topic validly admitted, a JSON `burn` too; kept once spent, dropped on rejection: BRC-207) |
+| `deploys` | token | — (the discovery topic's, below) |
 
 (token: its deploy txid in display order ‖ vout, 4 bytes big-endian; an
 outpoint the same.) `admitted` classifies each admitted output by the rules
@@ -119,6 +132,41 @@ for the topic's token: a deploy or an authority into `authorities`, a value
 takes the output out of its index and records the spender. `rejected`
 removes the transaction's outputs and returns the outputs it had spent. A
 hook for a topic that is not a token's does nothing.
+
+## BRC-207: a token's lookup
+
+`ls_mandala_<assetId>` (0.9.0; David Case, 2026-10-08), registered beside
+the token's topic (below, "Registering a token"), answers BRC-207's two
+queries (bsv-blockchain/BRCs#307, `wallet/0207.md` "Overlay spendability
+contract"):
+
+```json
+{"service": "ls_mandala_<assetId>",
+ "query": {"type": "mandala-spendability", "version": 1, "assetId": "<assetId>",
+           "topic": "tm_mandala_<assetId>", "outpoints": ["<txid>.<vout>", …]}}
+```
+
+- `mandala-spendability`: an output-list of exactly the queried outpoints
+  currently admitted to the topic and unspent, each `{beef, outputIndex}`.
+  Admitted: in `admitted` for the asset. Unspent: the chain state names no
+  spender for it (`chain/state`'s `spent`, the same reading the engine's own
+  `inTopic` uses).
+- `mandala-admission`: the same shape and rules, the outpoints ever validly
+  admitted, spent ones included (a rejected transaction's outputs never
+  were).
+- Exactly the queried outpoints: each once (a repeated one is answered
+  once), in the query's order, nothing unrelated. An empty list is a valid
+  "no".
+- Validated strictly: exactly the keys `type`, `version`, `assetId`,
+  `topic`, `outpoints`; `version` the integer 1; `assetId` and `topic`
+  this service's own, written exactly (`<txid>_<vout>`,
+  `tm_mandala_<txid>_<vout>`); each outpoint canonical BRC-36 dot form, 64
+  lowercase hex, `.`, the index without leading zeros, at most 2^32 - 1.
+  Anything else is refused (the engine answers 400). The per-asset service
+  takes no other query, and `ls_mandala` takes no BRC-207 query.
+- There is no wildcard: a token whose lookup is not registered answers
+  400 "Lookup service not supported", never an empty list (which would
+  mean "not spendable").
 
 ## The discovery topic
 
@@ -134,8 +182,8 @@ decimals, symbol, icon, ...).
   admitted, and nothing about governance is checked. The coins an admitted
   transaction spends are retained.
 - `ls_mandala_deploys` is `mandala-lookup` called as that service. Its map
-  `deploys` (token → nothing; a token id is its deploy outpoint) holds every
-  deploy the topic admitted. `{tokenId}` answers the deploy output, an
+  `deploys` (token → nothing; a token id is its deploy outpoint), in the
+  program's one index, holds every deploy the topic admitted. `{tokenId}` answers the deploy output, an
   output-list of one (empty if none); any other key is refused. A deploy
   stays listed once spent (a registry); a rejected transaction's deploys are
   removed. This is the shape of ts-stack's `metadataTokenId`, under its own
@@ -160,25 +208,30 @@ runs as the route's filter over the current state and answers `{answer:
   to 100 (default 100), `skip` 0 to 100000 (default 0). Any other key, or a
   value out of range, is a 400 `{status: "error", message}`.
 - **Answer**: 200, a JSON array, one entry per deploy the discovery topic
-  `tm_mandala` admitted (the map `deploys` of `ls_mandala_deploys`, under
-  `<app>/ls_mandala_deploys`; nothing when the topic is not registered):
+  `tm_mandala` admitted (the map `deploys` of the program's index,
+  `<app>/ls_mandala`; nothing when the topic is not registered):
 
   ```
   [{tokenId, topic, sym, dec, icon?, txid, vout}]
   ```
 
   `tokenId` `<txid>_<vout>` (`<txid>_0` at output 0, a binary deploy's or a
-  BRC-161 one's alike), `topic` the token's (`tm_<txid>_0` or
-  `tm_<txid>_<vout>`), `txid` / `vout` the deploy outpoint. `sym`, `dec`
-  and `icon` are the deploy's display fields: a BRC-161 deploy's JSON
+  BRC-161 one's alike), `topic` the token's (`tm_mandala_<txid>_0` or
+  `tm_mandala_<txid>_<vout>`), `txid` / `vout` the deploy outpoint. `sym`,
+  `dec` and `icon` are the deploy's display fields: a BRC-161 deploy's JSON
   `sym`, `dec`, `icon`; a BRC-162 deploy's payload, a DAG-CBOR map read by
   the `mandala` module (`brc162.metadataOf`: `sym` a text string, `dec` an
-  unsigned integer 0 to 18, `icon` 36 bytes, an outpoint, or 4 bytes, an
-  output index of the deploy transaction; a malformed field is absent, as
-  in `@1sat/templates`). `sym` is `""` and `dec` 0 when the deploy carries
-  none; `icon` is left out when it has none, and is always an outpoint
-  `<txid>_<vout>` (an index `n` becomes `<deploy txid>_n`) or a BRC-161
-  deploy's `icon` as written.
+  unsigned integer 0 to 18, `icon` the embedded image, the array
+  `[mediaType, bytes]` of a text string and a byte string, untagged — the
+  BRC-162 draft bsv-blockchain/BRCs#308; the pointer forms, a 36-byte
+  outpoint or a 4-byte output index, are gone, and any other shape is
+  absent; a malformed field is absent, as in `@1sat/templates`). `sym` is
+  `""` and `dec` 0 when the deploy carries none; `icon` is left out when it
+  has none. **The icon's shape** (0.9.0, for David's review): a binary
+  (Mandala) deploy's is a data URL, `data:<mediaType>;base64,<bytes>`
+  (left out when the media type is not an RFC 6838 `type/subtype`, which a
+  data URL could not carry as written); a BRC-161 JSON deploy's is its
+  `icon` string as written (an outpoint), as before.
 - **Order: newest first**, by the chain state (`chain/state`, read only):
   a deploy not yet mined first, then by block height, then by position in
   the block, highest first; ties (unmined) by deploy outpoint, highest
@@ -188,20 +241,34 @@ runs as the route's filter over the current state and answers `{answer:
   has left the index (its `rejected` hook), so it is not listed; one spent
   stays (a registry).
 
-## Registering a topic
+## Registering a token
 
-The overlay serves only the topics root registered (#120 item 2; the
-call is the engine's, skein-overlay 0.6.0 (root's box `<app>/register`
-since 0.7.7, `<app>/overlay` from 0.6.2), docs/OVERLAY.md "Register a topic"). The manifest declares no topics; there are no topic prefixes
-anywhere, in the configuration or in the routes.
+The overlay serves only the tokens root registered (#120 item 2; the
+calls are the engine's, skein-overlay 0.6.0 and 0.11.0 (root's box
+`<app>/register` since 0.7.7, `<app>/overlay` from 0.6.2), docs/OVERLAY.md
+"Register a topic", "Register a lookup service"). The manifest declares no
+topics; there are no topic prefixes anywhere, in the configuration or in
+the routes. A token is two registrations (0.9.0, BRC-207; David Case,
+2026-10-08), its topic, then its lookup:
+
+```
+{fn: "register",         args: {topic: "tm_mandala_<assetId>", program: "mandala-topic", seed?: [<deploy txid>]}}
+{fn: "registerLookup",   args: {service: "ls_mandala_<assetId>", program: "mandala-lookup", topics: ["tm_mandala_<assetId>"]}}
+```
+
+and deregistering reverses both: `{fn: "deregisterLookup", args:
+{service}}`, then `{fn: "deregister", args: {topic}}`. The discovery topic
+`tm_mandala` is registered by `register` alone (its lookup
+`ls_mandala_deploys` is the manifest's). The topic's register, in full:
 
 1. Root sends `{fn: "register", args: {topic, program:
    "mandala-topic"}}` to the app's box `<app>/register`. The topic is
-   `tm_<txid>_<vout>` (`tm_<txid>_0` at output 0) or `tm_mandala`; it follows from
+   `tm_mandala_<assetId>` or `tm_mandala`; it follows from
    how the token was deployed (the deploy page shows it). The route
    `{address: "register", handler: "overlay.register"}` (relative; the
    install resolves it to `<app>/register`, skein#128) takes it to the
-   engine; `roles: {root: ["register", "market", "validator"]}` gates it
+   engine; `roles: {root: ["register", "registerLookup",
+   "deregisterLookup", "market", "validator"]}` gates it
    (shruggr/skein#143: a message from a key without root is recorded and
    runs nothing).
 2. The engine adds `{topic, program}` to its registered set, the head
@@ -223,8 +290,13 @@ anywhere, in the configuration or in the routes.
    overlay never held it) is submitted the usual way.
 6. From the next step the engine serves the topic, judged by
    `mandala-topic`: `/submit` with it in `X-Topics`, gossip on it, the
-   listing, and both lookups (which list no `topics`, so they listen to
-   every topic served).
+   listing, and the lookups (`ls_mandala` and `ls_mandala_deploys` list no
+   `topics`, so they listen to every topic served; `mandala-lookup` hears
+   each admission once).
+7. Then root sends `registerLookup` for `ls_mandala_<assetId>`: the engine
+   adds it to its registered lookups, the head `<app>/lookups`, and serves
+   it from the next step (`/lookup`, the listing), answered `{service,
+   active}`.
 
 `{fn: "deregister", args: {topic}}` removes it and emits `unsubscribe` for
 the same three. Both are idempotent: registering a registered topic, or
@@ -244,8 +316,9 @@ not remove what the topic admitted or the lookup's index of it.
   `topics` list;
 - the routes, filters and roles (shruggr/skein#143; no senders): the
   route `{"address": "register", "handler": "overlay.register"}` (root's
-  `register` / `deregister` and switches, box `<app>/register`; `roles:
-  {"root": ["register", "market", "validator"]}`), `{"address": "submit",
+  `register` / `deregister`, `registerLookup` / `deregisterLookup` and
+  switches, box `<app>/register`; `roles: {"root": ["register",
+  "registerLookup", "deregisterLookup", "market", "validator"]}`), `{"address": "submit",
   "filters": ["kernel.beef"], "handler": "overlay.submit"}` (the submission
   box `<app>/submit`: submissions by message, anyone whose BEEF validates,
   skein-overlay 0.7.6; no route of its own on `<app>`);

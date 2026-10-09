@@ -202,9 +202,11 @@ pub fn pushAmount(buf: *[10]u8, amount: u64) []const u8 {
 
 // ---------------------------------------------------------------- a deploy's display fields
 
-/// A deploy's icon (BRC-162 "Deploy metadata"): a 36-byte outpoint (txid internal order ‖ uint32 LE
-/// vout), or a 4-byte uint32 LE output index in the deploy transaction itself.
-pub const Icon = union(enum) { outpoint: Id, output: u32 };
+/// A deploy's icon (BRC-162 "Deploy metadata", draft bsv-blockchain/BRCs#308): the image embedded
+/// in the deploy, the DAG-CBOR array `[mediaType, bytes]` — a text string (an RFC 6838 media type,
+/// as written) and a byte string (the image). The pointer forms (a 36-byte outpoint, a 4-byte
+/// output index) are gone: any other shape is absent.
+pub const Icon = struct { media_type: []const u8, bytes: []const u8 };
 
 /// A deploy payload's display fields, each when present and of its type.
 pub const Metadata = struct {
@@ -214,7 +216,8 @@ pub const Metadata = struct {
 };
 
 /// The display fields of a deploy's payload: a DAG-CBOR map that may carry `sym` (a text string),
-/// `dec` (an unsigned integer 0..18) and `icon` (a byte string of 36 or 4 bytes), as
+/// `dec` (an unsigned integer 0..18) and `icon` (an array of exactly two items, untagged: a text
+/// string, the media type, and a byte string, the image), as
 /// @1sat/templates' `Mandala` reads them (`metadataOf`): a malformed attribute is absent, the
 /// others unaffected, other keys ignored. A payload that is not one DAG-CBOR map (strict: minimal
 /// lengths, definite lengths, text keys, no duplicate key, nothing after it) has none.
@@ -331,13 +334,23 @@ const CborReader = struct {
                     continue;
                 }
             } else if (std.mem.eql(u8, key, "icon")) {
-                if (v.major == 2) {
-                    const ib = try self.bytesOf(v.arg);
-                    if (ib.len == 36) {
-                        out.icon = .{ .outpoint = .{ .txid = ib[0..32].*, .vout = std.mem.readInt(u32, ib[32..36], .little) } };
-                    } else if (ib.len == 4) {
-                        out.icon = .{ .output = std.mem.readInt(u32, ib[0..4], .little) };
+                if (v.major == 4 and v.arg == 2) {
+                    // [mediaType, bytes]: each item read as it comes; another shape (a tag, other
+                    // types) is absent, the item skipped as any other.
+                    const mt = try self.head();
+                    if (mt.major != 3) {
+                        try self.skipBody(mt, 2);
+                        try self.skip(2);
+                        continue;
                     }
+                    const media_type = try self.bytesOf(mt.arg);
+                    const im = try self.head();
+                    if (im.major != 2) {
+                        try self.skipBody(im, 2);
+                        continue;
+                    }
+                    const bytes = try self.bytesOf(im.arg);
+                    if (std.unicode.utf8ValidateSlice(media_type)) out.icon = .{ .media_type = media_type, .bytes = bytes };
                     continue;
                 }
             }
